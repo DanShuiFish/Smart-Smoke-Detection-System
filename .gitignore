@@ -1,0 +1,19 @@
+.idea/
+*.iml
+out/
+target/
+*.class
+*.jar
+*.war
+*.log
+logs/
+.DS_Store
+Thumbs.db
+node_modules/
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Keep docs
+!docs/
