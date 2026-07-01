@@ -38,11 +38,14 @@ mqtt:
   broker:
     url: tcp://localhost:1883
     client-id: smart-smoke-backend
-    default-topic: smoke/+/data,smoke/+/heartbeat
     completion-timeout: 3000
     reconnect:
       enabled: true
       max-delay: 10000
+    topics:
+      data-up: "smoke/+/data"          # 上报数据的订阅主题 (+为通配符)
+      heartbeat-up: "smoke/+/heartbeat" # 心跳的订阅主题
+      cmd-down: "smoke/String.format/cmd"         # 下发控制指令的主题 (用 %s 占位，Java 里用 String.format 替换)
 logging:
   level:
     com.smartsmoke: debug
