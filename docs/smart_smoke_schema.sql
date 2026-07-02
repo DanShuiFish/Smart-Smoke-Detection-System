@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS `sensor_data` (
     `extra_data` JSON            NULL  COMMENT '扩展数据（附加传感器字段）',
     `collect_time` DATETIME        NOT NULL  COMMENT '数据采集时间',
     `create_time` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP  COMMENT '入库时间',
+    PRIMARY KEY (id),
     KEY `idx_device_time` (device_id, collect_time)  COMMENT '按设备+时间查询（历史趋势核心索引）',
     KEY `idx_collect_time` (collect_time)  COMMENT '按时间范围检索',
     KEY `idx_create_time` (create_time)  COMMENT '入库时间索引',
@@ -341,3 +342,4 @@ INSERT INTO `sys_user` (username, password, real_name, role, status, remark) VAL
 ('admin',    '$2a$10$PlaceholderHashHere', '系统管理员', 'SYSTEM_ADMIN',    'ENABLED', '系统内置管理员'),
 ('fireman1', '$2a$10$PlaceholderHashHere', '消防员张三', 'FIREFIGHTER',     'ENABLED', '消防员账号'),
 ('manager1', '$2a$10$PlaceholderHashHere', '小区管理员李四', 'COMMUNITY_ADMIN', 'ENABLED', '小区管理员账号');
+    PRIMARY KEY (id),

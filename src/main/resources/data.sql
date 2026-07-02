@@ -32,6 +32,37 @@ INSERT IGNORE INTO `smoke_device` (device_id, device_name, status, location_buil
 
 -- 测试用户
 INSERT IGNORE INTO `sys_user` (username, password, real_name, role, status, remark) VALUES
-('admin','$2a$10$PlaceholderHashHere','系统管理员','SYSTEM_ADMIN','ENABLED','内置管理员'),
-('fireman1','$2a$10$PlaceholderHashHere','消防员张三','FIREFIGHTER','ENABLED','消防员'),
-('manager1','$2a$10$PlaceholderHashHere','管理员李四','COMMUNITY_ADMIN','ENABLED','小区管理员');
+('admin','$2a$10$W/Pyj3Hk4t1cTutG0i2rjeAJx559u5cuOdaFpeOmKtw5tJgdnVsau','系统管理员','SYSTEM_ADMIN','ENABLED','内置管理员'),
+('fireman1','$2a$10$Tf8b0kdpFLE66x8N4Jp9JevA0hNIhbopFnNxF8lJKL0U32ZUTRwVi','消防员张三','FIREFIGHTER','ENABLED','消防员'),
+('manager1','$2a$10$hXxUChyTPEnJoC3Cg9aU7OjM.mL4REQQQWQ0OvhvoPFQJhTbql7aC','管理员李四','COMMUNITY_ADMIN','ENABLED','小区管理员');
+
+-- Sample: device bindings
+INSERT IGNORE INTO `device_binding` (`device_id`,`user_id`,`bind_type`,`status`) VALUES
+(1,1,'''OWNER''','''BOUND'''),
+(2,3,'''ADMIN''','''BOUND'''),
+(3,1,'''OWNER''','''BOUND'''),
+(5,2,'''VIEWER''','''BOUND''');
+
+
+-- Sensor data samples (for history trend charts)
+INSERT IGNORE INTO `sensor_data` (`device_id`,`smoke_concentration`,`temperature`,`humidity`,`collect_time`) VALUES
+(1,0.0521,23.5,45.2,NOW()-INTERVAL 30 DAY),
+(1,0.0613,24.1,44.8,NOW()-INTERVAL 29 DAY),
+(1,0.0487,22.8,46.1,NOW()-INTERVAL 28 DAY),
+(1,0.0725,24.3,43.5,NOW()-INTERVAL 27 DAY),
+(1,0.0559,23.9,45.0,NOW()-INTERVAL 26 DAY),
+(1,0.0832,25.1,42.7,NOW()-INTERVAL 24 HOUR),
+(1,0.0914,25.6,42.1,NOW()-INTERVAL 12 HOUR),
+(1,0.1020,26.2,41.5,NOW()-INTERVAL 6 HOUR),
+(1,0.1125,26.8,40.9,NOW()-INTERVAL 1 HOUR),
+(2,0.0331,22.1,47.3,NOW()-INTERVAL 30 DAY),
+(2,0.0418,22.7,46.8,NOW()-INTERVAL 25 DAY),
+(2,0.0385,23.0,46.2,NOW()-INTERVAL 20 DAY),
+(2,0.0452,23.5,45.6,NOW()-INTERVAL 15 DAY),
+(2,0.0527,24.0,44.9,NOW()-INTERVAL 10 DAY),
+(2,0.0481,23.8,45.3,NOW()-INTERVAL 5 DAY),
+(2,0.0553,24.2,44.5,NOW()-INTERVAL 1 DAY);
+
+-- Alarm record sample
+INSERT IGNORE INTO `alarm_record` (`device_id`,`alarm_code`,`alarm_type`,`alarm_level`,`alarm_status`,`smoke_concentration`,`threshold_value`,`alarm_time`) VALUES
+(1,'ALG-20260701-001','SMOKE_OVERFLOW','HIGH','PENDING',2.3500,2.0000,NOW()-INTERVAL 1 HOUR);

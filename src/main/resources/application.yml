@@ -1,4 +1,4 @@
-server:
+﻿server:
   port: 8080
 
 spring:
@@ -7,7 +7,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true
     username: root
-    password: 123456
+    password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:
@@ -43,9 +43,10 @@ mqtt:
       enabled: true
       max-delay: 10000
     topics:
-      data-up: "smoke/+/data"          # 上报数据的订阅主题 (+为通配符)
-      heartbeat-up: "smoke/+/heartbeat" # 心跳的订阅主题
-      cmd-down: "smoke/String.format/cmd"         # 下发控制指令的主题 (用 %s 占位，Java 里用 String.format 替换)
+      data-up: "smoke/+/data"          # 涓婃姤鏁版嵁鐨勮闃呬富棰?(+涓洪€氶厤绗?
+      heartbeat-up: "smoke/+/heartbeat" # 蹇冭烦鐨勮闃呬富棰?
+      cmd-down: "smoke/String.format/cmd"         # 涓嬪彂鎺у埗鎸囦护鐨勪富棰?(鐢?%s 鍗犱綅锛孞ava 閲岀敤 String.format 鏇挎崲)
 logging:
   level:
     com.smartsmoke: debug
+
