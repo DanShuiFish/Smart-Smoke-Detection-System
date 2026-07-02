@@ -43,9 +43,9 @@ mqtt:
       enabled: true
       max-delay: 10000
     topics:
-      data-up: "smoke/+/data"          # 涓婃姤鏁版嵁鐨勮闃呬富棰?(+涓洪€氶厤绗?
-      heartbeat-up: "smoke/+/heartbeat" # 蹇冭烦鐨勮闃呬富棰?
-      cmd-down: "smoke/String.format/cmd"         # 涓嬪彂鎺у埗鎸囦护鐨勪富棰?(鐢?%s 鍗犱綅锛孞ava 閲岀敤 String.format 鏇挎崲)
+      data-up: "smoke/+/data"
+      heartbeat-up: "smoke/+/heartbeat"
+      cmd-down: "smoke/%s/cmd"
 logging:
   level:
     com.smartsmoke: debug
