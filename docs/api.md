@@ -10,13 +10,13 @@
 
 ### 1.1 响应格式
 
-所有接口统一返回 ${bt}Result<T>${bt} 结构：
+所有接口统一返回 `Result<T>` 结构：
 
 ```json
 {
   "code": 200,
   "msg": "success",
-  "data": { ... },
+  "data": {},
   "timestamp": 1720000000000
 }
 ```
@@ -30,7 +30,7 @@
 
 ### 1.2 分页格式
 
-分页接口返回 ${bt}Result<PageResult<T>>${bt}：
+分页接口返回 `Result<PageResult<T>>`：
 
 ```json
 {
@@ -41,7 +41,7 @@
     "pageSize": 20,
     "total": 42,
     "pages": 3,
-    "records": [ ... ]
+    "records": []
   }
 }
 ```
@@ -62,7 +62,7 @@
 Authorization: Bearer {token}
 ```
 
-登录接口 ${bt}/api/auth/login${bt} 为白名单，无需 token。
+登录接口 `/api/auth/login` 为白名单，无需 token。
 
 ---
 
@@ -83,7 +83,7 @@ GET /api/devices?page=1&size=20&status=ONLINE&building=1号楼
 | status | query | String | 否 | -- | ONLINE/OFFLINE/ERROR/INACTIVE |
 | building | query | String | 否 | -- | 按楼栋过滤 |
 
-**响应**: ${bt}Result<PageResult<SmokeDevice>>${bt}
+**响应**: `Result<PageResult<SmokeDevice>>`
 
 ### 2.2 获取设备详情
 
@@ -95,7 +95,7 @@ GET /api/devices/{id}
 |---|---|---|
 | id | Long | 设备主键 ID |
 
-**响应**: ${bt}Result<SmokeDevice>${bt}
+**响应**: `Result<SmokeDevice>`
 
 ### 2.3 新增设备
 
@@ -112,7 +112,7 @@ Content-Type: application/json
 }
 ```
 
-**响应**: ${bt}Result<SmokeDevice>${bt}（含生成的 id）
+**响应**: `Result<SmokeDevice>`（含生成的 id）
 
 ### 2.4 更新设备
 
@@ -126,7 +126,7 @@ Content-Type: application/json
 }
 ```
 
-**响应**: ${bt}Result<SmokeDevice>${bt}
+**响应**: `Result<SmokeDevice>`
 
 ### 2.5 删除设备
 
@@ -134,7 +134,7 @@ Content-Type: application/json
 DELETE /api/devices/{id}
 ```
 
-**响应**: ${bt}Result<Void>${bt}（逻辑删除）
+**响应**: `Result<Void>`（逻辑删除）
 
 ---
 
@@ -157,7 +157,7 @@ GET /api/alarms?page=1&size=20&status=PENDING
 | start | query | String | 否 | -- | 起始时间 ISO-8601 |
 | end | query | String | 否 | -- | 结束时间 ISO-8601 |
 
-**响应**: ${bt}Result<PageResult<AlarmRecord>>${bt}
+**响应**: `Result<PageResult<AlarmRecord>>`
 
 ### 3.2 获取告警详情
 
@@ -165,7 +165,7 @@ GET /api/alarms?page=1&size=20&status=PENDING
 GET /api/alarms/{id}
 ```
 
-**响应**: ${bt}Result<AlarmRecord>${bt}
+**响应**: `Result<AlarmRecord>`
 
 ### 3.3 确认告警
 
@@ -178,7 +178,7 @@ PUT /api/alarms/{id}/confirm?userId=1&method=AUTO_VISION
 | userId | query | Long | 是 | 确认人 ID |
 | method | query | String | 是 | MANUAL/AUTO_VISION |
 
-**响应**: ${bt}Result<Void>${bt}
+**响应**: `Result<Void>`
 
 ### 3.4 处置告警
 
@@ -199,7 +199,7 @@ Content-Type: application/json
 | resolveMethod | String | 是 | ON_SITE/REMOTE/IGNORE |
 | resolveDetail | String | 否 | 处置详情 |
 
-**响应**: ${bt}Result<Void>${bt}
+**响应**: `Result<Void>`
 
 ---
 
@@ -217,7 +217,7 @@ GET /api/data/latest/{deviceId}
 |---|---|---|
 | deviceId | Long | 设备主键 ID |
 
-**响应**: ${bt}Result<SensorData>${bt}
+**响应**: `Result<SensorData>`
 
 ### 4.2 获取历史数据（折线图）
 
@@ -231,7 +231,7 @@ GET /api/data/history/{deviceId}?start=2026-06-01T00:00:00&end=2026-07-02T23:59:
 | start | query | String | 是 | 起始时间 ISO-8601 |
 | end | query | String | 是 | 结束时间 ISO-8601 |
 
-**响应**: ${bt}Result<List<SensorData>>${bt}（按 collectTime 升序）
+**响应**: `Result<List<SensorData>>`（按 collectTime 升序）
 
 ---
 
@@ -251,7 +251,7 @@ GET /api/users?page=1&size=20&role=SYSTEM_ADMIN
 | size | int | 否 | 20 | 每页条数 |
 | role | String | 否 | -- | RESIDENT/COMMUNITY_ADMIN/SYSTEM_ADMIN/FIREFIGHTER |
 
-**响应**: ${bt}Result<PageResult<SysUser>>${bt}
+**响应**: `Result<PageResult<SysUser>>`
 
 ### 5.2 获取用户详情
 
@@ -259,7 +259,7 @@ GET /api/users?page=1&size=20&role=SYSTEM_ADMIN
 GET /api/users/{id}
 ```
 
-**响应**: ${bt}Result<SysUser>${bt}
+**响应**: `Result<SysUser>`
 
 ### 5.3 新增用户
 
@@ -276,7 +276,7 @@ Content-Type: application/json
 }
 ```
 
-**响应**: ${bt}Result<SysUser>${bt}
+**响应**: `Result<SysUser>`
 
 > password 传明文即可，后端自动 BCrypt 加密。
 
