@@ -1,4 +1,5 @@
-# Smart-Smoke-Detection-System
+# Smart-Smoke-Detection-System  
+
 本项目致力于进行烟雾的智能检测并为用户提供服务
 **1. 大体开发基于框架说明以及后续API规范以及需求文档即可**
 **2. 非必要不修改除自己负责的部分之外的文件，如有必要修改，请先与对应的成员沟通**
