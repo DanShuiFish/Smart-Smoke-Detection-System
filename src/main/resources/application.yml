@@ -1,4 +1,4 @@
-﻿server:
+server:
   port: 8080
 
 spring:
@@ -36,15 +36,18 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 mqtt:
   broker:
-    url: tcp://localhost:1883
+    url: tcp://192.168.130.101:1883
     client-id: smart-smoke-backend
+    username: fasong
+    password: fasong123
     completion-timeout: 3000
     reconnect:
       enabled: true
       max-delay: 10000
-  topics:
-    subscribe: "smoke/+/data,smoke/+/heartbeat"
-    publish-cmd: "smoke/%s/cmd"
+    topics:
+      data-up: "smoke/+/data"          # 涓婃姤鏁版嵁鐨勮闃呬富棰?(+涓洪€氶厤绗?
+      heartbeat-up: "smoke/+/heartbeat" # 蹇冭烦鐨勮闃呬富棰?
+      cmd-down: "smoke/String.format/cmd"         # 涓嬪彂鎺у埗鎸囦护鐨勪富棰?(鐢?%s 鍗犱綅锛孞ava 閲岀敤 String.format 鏇挎崲)
 logging:
   level:
     com.smartsmoke: debug

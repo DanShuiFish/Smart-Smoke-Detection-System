@@ -2,10 +2,11 @@ package com.smartsmoke.mqtt;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.smartsmoke.dto.DeviceReportDTO; // 引入第一步新建的DTO
+import com.smartsmoke.dto.DeviceReportDTO;
+import com.smartsmoke.dto.HeartbeatDTO;
 import com.smartsmoke.entity.SensorData;
 import com.smartsmoke.entity.SmokeDevice;
-import com.smartsmoke.mapper.DeviceMapper; // 引入DeviceMapper
+import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.rule.AlarmRuleEngine;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -18,22 +19,22 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 
-// 在 MQTT 接收端建立一个“防波堤”，
-// 把硬件原始的、简陋的数据格式（DTO），安全地转换为我们后端复杂、严谨的业务实体对象（Entity）
+/**
+ * MQTT 消费者 — BE1 领地
+ * 负责接收设备上报的数据和心跳，分发处理。
+ * 心跳走 handleHeartbeat()，传感器数据走 handleDataReport()。
+ */
 @Slf4j
 @Component
 public class MqttConsumer {
     private final MqttClient mqttClient;
     private final AlarmRuleEngine alarmRuleEngine;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    // 【修改点1】新增注入 DeviceMapper，用于查询设备信息
     private final DeviceMapper deviceMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${mqtt.topics.subscribe}")
     private String subscribeTopics;
 
-    // 【修改点2】构造函数中加入 deviceMapper
     public MqttConsumer(MqttClient mqttClient, AlarmRuleEngine alarmRuleEngine, DeviceMapper deviceMapper) {
         this.mqttClient = mqttClient;
         this.alarmRuleEngine = alarmRuleEngine;
@@ -56,55 +57,95 @@ public class MqttConsumer {
         }
     }
 
+    /**
+     * 消息入口：根据 topic 类型分流
+     */
     private void handleMessage(String topic, MqttMessage msg) {
         String payload = new String(msg.getPayload());
         log.debug("MQTT [{}]: {}", topic, payload);
 
         try {
-            // 【修改点3】反序列化目标改为硬件友好的 DeviceReportDTO
-            DeviceReportDTO report = objectMapper.readValue(payload, DeviceReportDTO.class);
-
-            // 【修改点4】设备身份转换：通过硬件SN码(String)查找数据库中的主键ID(Long)
-            SmokeDevice device = deviceMapper.selectOne(
-                    new QueryWrapper<SmokeDevice>().eq("device_id", report.getDeviceId())
-            );
-
-            if (device == null) {
-                log.warn("收到未注册设备的数据上报，硬件标识: {}", report.getDeviceId());
-                return; // 防御性编程：未在系统注册的设备数据直接拦截，不入库
-            }
-
-            SmokeDevice updateDevice = new SmokeDevice();
-            updateDevice.setId(device.getId());
-            updateDevice.setStatus("ONLINE"); // 标记为在线
-            updateDevice.setLastOnlineTime(LocalDateTime.now());
-            if (report.getBat() != null) {
-                updateDevice.setBattery(report.getBat()); // 如果报文里带了电量，顺手更新
-            }
-            deviceMapper.updateById(updateDevice);
-
-            // 【修改点5】DTO 转换为 Entity 实体
-            SensorData sensorData = new SensorData();
-            sensorData.setDeviceId(device.getId()); // 填入对应的 Long 类型外键
-            sensorData.setSmokeConcentration(report.getSmoke());
-            sensorData.setTemperature(report.getTemp());
-            sensorData.setHumidity(report.getHumi());
-            sensorData.setUnit("mg/m3"); // 补充默认单位
-
-            // 【修改点6】时间戳安全降级策略
-            if (report.getTs() != null) {
-                // 如果鸿蒙设备端传了 Unix 时间戳，转换为 LocalDateTime
-                sensorData.setCollectTime(LocalDateTime.ofInstant(Instant.ofEpochMilli(report.getTs()), ZoneId.systemDefault()));
+            if (topic.contains("/heartbeat")) {
+                HeartbeatDTO heartbeat = objectMapper.readValue(payload, HeartbeatDTO.class);
+                handleHeartbeat(heartbeat);
             } else {
-                // 如果鸿蒙设备端没有 RTC 时钟且未联网获取时间，平台自动打上云端接收时间
-                sensorData.setCollectTime(LocalDateTime.now());
+                DeviceReportDTO report = objectMapper.readValue(payload, DeviceReportDTO.class);
+                handleDataReport(report);
             }
-
-            // 最后交给 PM 的规则引擎处理
-            alarmRuleEngine.processData(sensorData);
-
         } catch (Exception e) {
-            log.error("MQTT报文解析失败或规则引擎处理异常, topic: {}, payload: {}", topic, payload, e);
+            log.error("MQTT报文解析失败或处理异常, topic: {}, payload: {}", topic, payload, e);
         }
+    }
+
+    /**
+     * 处理心跳报文
+     */
+    private void handleHeartbeat(HeartbeatDTO heartbeat) {
+        SmokeDevice device = deviceMapper.selectOne(
+                new QueryWrapper<SmokeDevice>().eq("device_id", heartbeat.getDeviceId())
+        );
+
+        if (device == null) {
+            log.warn("收到未注册设备的心跳，硬件标识: {}", heartbeat.getDeviceId());
+            return;
+        }
+
+        SmokeDevice updateDevice = new SmokeDevice();
+        updateDevice.setId(device.getId());
+        updateDevice.setStatus("ONLINE");
+        updateDevice.setLastOnlineTime(LocalDateTime.now());
+        updateDevice.setLastHeartbeat(LocalDateTime.now());
+        if (heartbeat.getBat() != null) {
+            updateDevice.setBattery(heartbeat.getBat());
+        }
+        if (heartbeat.getRssi() != null) {
+            updateDevice.setSignalStrength(heartbeat.getRssi());
+        }
+        deviceMapper.updateById(updateDevice);
+        log.debug("心跳更新: {} battery={}% rssi={}dBm", heartbeat.getDeviceId(), heartbeat.getBat(), heartbeat.getRssi());
+    }
+
+    /**
+     * 处理传感器数据报文 — 转为 SensorData 交给规则引擎
+     */
+    private void handleDataReport(DeviceReportDTO report) {
+        // 设备身份转换：通过硬件SN码查找数据库中的主键ID
+        SmokeDevice device = deviceMapper.selectOne(
+                new QueryWrapper<SmokeDevice>().eq("device_id", report.getDeviceId())
+        );
+
+        if (device == null) {
+            log.warn("收到未注册设备的数据上报，硬件标识: {}", report.getDeviceId());
+            return;
+        }
+
+        // 更新设备在线状态
+        SmokeDevice updateDevice = new SmokeDevice();
+        updateDevice.setId(device.getId());
+        updateDevice.setStatus("ONLINE");
+        updateDevice.setLastOnlineTime(LocalDateTime.now());
+        if (report.getBat() != null) {
+            updateDevice.setBattery(report.getBat());
+        }
+        deviceMapper.updateById(updateDevice);
+
+        // DTO 转换为 Entity
+        SensorData sensorData = new SensorData();
+        sensorData.setDeviceId(device.getId());
+        sensorData.setSmokeConcentration(report.getSmoke());
+        sensorData.setTemperature(report.getTemp());
+        sensorData.setHumidity(report.getHumi());
+        sensorData.setUnit("mg/m3");
+
+        // 时间戳安全降级策略
+        if (report.getTs() != null) {
+            sensorData.setCollectTime(LocalDateTime.ofInstant(
+                    Instant.ofEpochMilli(report.getTs()), ZoneId.systemDefault()));
+        } else {
+            sensorData.setCollectTime(LocalDateTime.now());
+        }
+
+        // 交给 PM 的规则引擎处理
+        alarmRuleEngine.processData(sensorData);
     }
 }
