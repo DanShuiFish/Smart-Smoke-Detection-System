@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class AlarmController {
     private final AlarmRecordService alarmRecordService;
+
     @GetMapping
     public Result<PageResult<AlarmRecord>> list(
             @RequestParam(defaultValue = "1") int page,
@@ -29,10 +30,12 @@ public class AlarmController {
         qw.orderByDesc(AlarmRecord::getAlarmTime);
         return Result.success(PageResult.of(alarmRecordService.page(new Page<>(page, size), qw)));
     }
+
     @GetMapping("/{id}")
     public Result<AlarmRecord> getById(@PathVariable Long id) {
         return Result.success(alarmRecordService.getById(id));
     }
+
     @PutMapping("/{id}/confirm")
     public Result<Void> confirm(@PathVariable Long id, @RequestParam Long userId, @RequestParam String method) {
         AlarmRecord r = alarmRecordService.getById(id);
@@ -40,6 +43,7 @@ public class AlarmController {
         r.setAlarmStatus("CONFIRMED"); r.setConfirmUserId(userId); r.setConfirmMethod(method); r.setConfirmTime(LocalDateTime.now());
         alarmRecordService.updateById(r); return Result.success();
     }
+
     @PutMapping("/{id}/resolve")
     public Result<Void> resolve(@PathVariable Long id, @RequestBody AlarmRecord update) {
         AlarmRecord r = alarmRecordService.getById(id);
