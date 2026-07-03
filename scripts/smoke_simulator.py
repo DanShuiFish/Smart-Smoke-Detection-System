@@ -17,24 +17,25 @@ MQTT Broker: 默认连接 tcp://192.168.130.101:1883 (EMQX on VMware Ubuntu)
 """
 
 import json
+import os
 import time
 import random
 import sys
 import threading
 from datetime import datetime
 
-# ====================== 配置区 ======================
-MQTT_BROKER = "192.168.130.101"
-MQTT_PORT = 1883
-CLIENT_ID = "smoke-simulator-python"
-MQTT_USERNAME = "fasong"
-MQTT_PASSWORD = "fasong123"
+# ====================== 配置区（优先从环境变量读取）======================
+MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.130.101")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "smoke-simulator-python")
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "fasong")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "fasong123")
 
-# 设备列表 (模拟多台烟感)
+# 设备列表 (模拟多台烟感) — device_code 按 API 文档规范: SDS-00x
 DEVICES = [
-    {"device_id": 1, "device_code": "SMK-001", "building": "1号楼", "floor": "1F", "room": "101室"},
-    {"device_id": 2, "device_code": "SMK-002", "building": "1号楼", "floor": "3F", "room": "301室"},
-    {"device_id": 3, "device_code": "SMK-003", "building": "2号楼", "floor": "1F", "room": "食堂"},
+    {"device_id": 1, "device_code": "SDS-001", "building": "1号楼", "floor": "1F", "room": "101室"},
+    {"device_id": 2, "device_code": "SDS-002", "building": "1号楼", "floor": "3F", "room": "301室"},
+    {"device_id": 3, "device_code": "SDS-003", "building": "2号楼", "floor": "1F", "room": "食堂"},
 ]
 
 # 模拟参数
@@ -44,41 +45,42 @@ OFFLINE_TIMEOUT = 35       # 离线判定: 超过此秒数不发心跳
 
 # ====================== 数据生成 ======================
 
+def now_ts():
+    """返回当前毫秒级时间戳，匹配 DeviceReportDTO.ts"""
+    return int(datetime.now().timestamp() * 1000)
+
+
 def normal_sensor_data(device):
-    """生成正常环境数据"""
+    """生成正常环境数据，匹配 DeviceReportDTO(deviceId/smoke/temp/humi/bat/ts)"""
     return {
-        "deviceId": device["device_id"],
-        "smokeConcentration": round(random.uniform(0.01, 0.03), 4),
-        "temperature": round(random.uniform(22.0, 28.0), 2),
-        "humidity": round(random.uniform(40.0, 55.0), 2),
-        "unit": "mg/m3",
-        "isAlert": 0,
-        "collectTime": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "deviceId": device["device_code"],
+        "smoke": round(random.uniform(0.01, 0.03), 4),
+        "temp": round(random.uniform(22.0, 28.0), 2),
+        "humi": round(random.uniform(40.0, 55.0), 2),
+        "bat": random.randint(85, 100),
+        "ts": now_ts(),
     }
 
 
 def alert_sensor_data(device, smoke_val=0.35, temp_val=68.0):
-    """生成告警数据 —— 模拟火灾现场"""
+    """生成告警数据，匹配 DeviceReportDTO"""
     return {
-        "deviceId": device["device_id"],
-        "smokeConcentration": round(smoke_val, 4),
-        "temperature": round(temp_val, 2),
-        "humidity": round(random.uniform(15.0, 25.0), 2),
-        "unit": "mg/m3",
-        "isAlert": 1,
-        "collectTime": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "deviceId": device["device_code"],
+        "smoke": round(smoke_val, 4),
+        "temp": round(temp_val, 2),
+        "humi": round(random.uniform(15.0, 25.0), 2),
+        "bat": random.randint(85, 100),
+        "ts": now_ts(),
     }
 
 
 def heartbeat_data(device):
-    """生成心跳报文"""
+    """生成心跳报文 — API文档 3.3: deviceId/bat/rssi/ts"""
     return {
-        "deviceId": device["device_id"],
-        "deviceCode": device["device_code"],
-        "battery": random.randint(85, 100),
-        "signalStrength": random.randint(-50, -30),
-        "status": "ONLINE",
-        "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "deviceId": device["device_code"],
+        "bat": random.randint(85, 100),
+        "rssi": random.randint(-50, -30),
+        "ts": now_ts(),
     }
 
 
