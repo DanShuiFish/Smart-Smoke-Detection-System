@@ -196,10 +196,10 @@ URL: ws://localhost:8080/ws/alarm
 ```json
 {
   "deviceId": "SDS-001",
-  "smokeConcentration": 0.0521,
-  "temperature": 23.50,
-  "humidity": 45.20,
-  "collectTime": "2026-07-02 14:30:00"
+  "smoke": 0.0521,
+  "temp": 23.50,
+  "humi": 45.20,
+  "ts": 1720000000000
 }
 ```
 
@@ -210,9 +210,9 @@ URL: ws://localhost:8080/ws/alarm
 ```json
 {
   "deviceId": "SDS-001",
-  "battery": 85,
-  "signalStrength": -45,
-  "timestamp": "2026-07-02 14:30:00"
+  "bat": 85,          // 缩写 battery 为 bat，省内存
+  "rssi": -45,        // 缩写 signalStrength 为 rssi (物联网通用信号标识)
+  "ts": 1720000000000 // 弃用字符串 timestamp，改用 Unix 毫秒时间戳 ts
 }
 ```
 
@@ -225,7 +225,7 @@ URL: ws://localhost:8080/ws/alarm
   "cmd": "BROADCAST",
   "alarmId": 1001,
   "content": "【紧急疏散】1栋检测到火情，请所有人员立即从安全通道撤离！",
-  "timestamp": "2026-07-02 14:30:05"
+  "ts": 1720000005000 // 弃用字符串，统一改用 ts
 }
 ```
 
