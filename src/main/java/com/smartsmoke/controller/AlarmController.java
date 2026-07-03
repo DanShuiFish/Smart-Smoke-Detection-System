@@ -15,6 +15,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AlarmController {
     private final AlarmRecordService alarmRecordService;
+
     @GetMapping
     public Result<PageResult<AlarmRecord>> list(
             @RequestParam(defaultValue = "1") int page,
@@ -31,10 +32,12 @@ public class AlarmController {
         qw.orderByDesc(AlarmRecord::getAlarmTime);
         return Result.success(PageResult.of(alarmRecordService.page(new Page<>(page, size), qw)));
     }
+
     @GetMapping("/{id}")
     public Result<AlarmRecord> getById(@PathVariable Long id) {
         return Result.success(alarmRecordService.getById(id));
     }
+
     @PutMapping("/{id}/confirm")
     public Result<Void> confirm(@PathVariable Long id, @RequestBody Map<String, String> body) {
         AlarmRecord r = alarmRecordService.getById(id);
@@ -46,6 +49,7 @@ public class AlarmController {
         alarmRecordService.updateById(r);
         return Result.success();
     }
+
     @PutMapping("/{id}/resolve")
     public Result<Void> resolve(@PathVariable Long id, @RequestBody AlarmRecord update) {
         AlarmRecord r = alarmRecordService.getById(id);
