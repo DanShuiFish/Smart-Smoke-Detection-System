@@ -74,6 +74,20 @@ public class AuthController {
         return Result.success(data);
     }
 
+
+    @GetMapping("/me")
+    public Result<Map<String, Object>> me() {
+        long userId = StpUtil.getLoginIdAsLong();
+        SysUser user = userService.getById(userId);
+        if (user == null) return Result.error(400, "用户不存在");
+        Map<String, Object> data = new HashMap<>();
+        data.put("userId", user.getId());
+        data.put("username", user.getUsername());
+        data.put("role", user.getRole());
+        data.put("realName", user.getRealName());
+        return Result.success(data);
+    }
+
     @PostMapping("/logout")
     public Result<Void> logout() {
         StpUtil.logout();
