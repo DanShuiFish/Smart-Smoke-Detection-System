@@ -38,10 +38,10 @@ INSERT IGNORE INTO `sys_user` (username, password, real_name, role, status, rema
 
 -- Sample: device bindings
 INSERT IGNORE INTO `device_binding` (`device_id`,`user_id`,`bind_type`,`status`) VALUES
-(1,1,'''OWNER''','''BOUND'''),
-(2,3,'''ADMIN''','''BOUND'''),
-(3,1,'''OWNER''','''BOUND'''),
-(5,2,'''VIEWER''','''BOUND''');
+(1,1,'OWNER','BOUND'),
+(2,3,'ADMIN','BOUND'),
+(3,1,'OWNER','BOUND'),
+(5,2,'VIEWER','BOUND');
 
 
 -- Sensor data samples (for history trend charts)

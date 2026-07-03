@@ -5,9 +5,11 @@ import com.smartsmoke.common.PageResult;
 import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.AlarmRecord;
 import com.smartsmoke.service.AlarmRecordService;
+import cn.dev33.satoken.stp.StpUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
+import java.util.Map;
 @RestController
 @RequestMapping("/api/alarms")
 @RequiredArgsConstructor
@@ -37,11 +39,15 @@ public class AlarmController {
     }
 
     @PutMapping("/{id}/confirm")
-    public Result<Void> confirm(@PathVariable Long id, @RequestParam Long userId, @RequestParam String method) {
+    public Result<Void> confirm(@PathVariable Long id, @RequestBody Map<String, String> body) {
         AlarmRecord r = alarmRecordService.getById(id);
-        if (r == null) return Result.error("Alarm not found");
-        r.setAlarmStatus("CONFIRMED"); r.setConfirmUserId(userId); r.setConfirmMethod(method); r.setConfirmTime(LocalDateTime.now());
-        alarmRecordService.updateById(r); return Result.success();
+        if (r == null) return Result.error(400, "告警不存在");
+        r.setAlarmStatus("CONFIRMED");
+        r.setConfirmUserId(StpUtil.getLoginIdAsLong());
+        r.setConfirmMethod(body.getOrDefault("confirmMethod", "MANUAL"));
+        r.setConfirmTime(LocalDateTime.now());
+        alarmRecordService.updateById(r);
+        return Result.success();
     }
 
     @PutMapping("/{id}/resolve")
