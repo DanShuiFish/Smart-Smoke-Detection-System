@@ -1,6 +1,7 @@
 package com.smartsmoke.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -12,6 +13,7 @@ public class SmokeDevice {
     private String deviceId;
     private String deviceName;
     private String deviceModel;
+    @JsonIgnore
     private String deviceSecret;
     private String firmwareVersion;
     private String status;
@@ -30,6 +32,7 @@ public class SmokeDevice {
     private Integer heartbeatTimeout;
     private Integer sortOrder;
     private String remark;
+    @JsonIgnore
     @TableLogic
     private Integer isDeleted;
     private String createBy;
