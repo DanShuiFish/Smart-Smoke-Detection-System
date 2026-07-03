@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const request = axios.create({
-  baseURL: '/api/v1',
+  baseURL: '/api',
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' }
 })
@@ -25,7 +25,7 @@ request.interceptors.response.use(
       localStorage.removeItem('smoke_user')
       window.location.href = '/login'
     }
-    return Promise.reject(new Error(res.msg || '请求失败'))
+    return Promise.reject(new Error(res.msg || '璇锋眰澶辫触'))
   },
   error => {
     if (error.response && error.response.status === 401) {
@@ -38,3 +38,4 @@ request.interceptors.response.use(
 )
 
 export default request
+

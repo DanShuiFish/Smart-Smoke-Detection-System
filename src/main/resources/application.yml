@@ -49,3 +49,6 @@ logging:
   level:
     com.smartsmoke: debug
 
+
+sa-token:
+  token-prefix: Bearer
