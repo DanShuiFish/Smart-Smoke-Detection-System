@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <el-container class="layout-container">
     <el-aside :width="isCollapse ? '64px' : '220px'" class="layout-aside">
       <div class="aside-header">
@@ -19,10 +19,6 @@
         active-text-color="#409eff"
         class="aside-menu"
       >
-        <el-menu-item index="dashboard" @click.prevent="openDashboard">
-          <el-icon><DataAnalysis /></el-icon>
-          <template #title>数据大屏</template>
-        </el-menu-item>
         <el-menu-item index="/device">
           <el-icon><Monitor /></el-icon>
           <template #title>设备管理</template>
@@ -98,7 +94,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import {
-  WarningFilled, Monitor, Setting, User, Tools, DataAnalysis,
+  WarningFilled, Monitor, Setting, User, Tools,
   Fold, Expand, ArrowDown, UserFilled,
   InfoFilled, SwitchButton, ChatDotSquare
 } from '@element-plus/icons-vue'
@@ -122,10 +118,6 @@ const showUserMgmt = computed(() => canAccessPage('user'))
 const showConfigMgmt = computed(() => canAccessPage('config'))
 const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => route.meta?.title || '')
-
-function openDashboard() {
-  window.open('/fe2/dashboard-enhanced.html', '_blank')
-}
 
 function handleCommand(cmd) {
   if (cmd === 'logout') {

@@ -9,12 +9,6 @@ const routes = [
     meta: { title: '登录' }
   },
   {
-    path: '/dashboard',
-    name: 'Dashboard',
-    component: () => import('../views/dashboard/DashboardView.vue'),
-    meta: { title: '数据大屏' }
-  },
-  {
     path: '/',
     component: () => import('../views/layout/MainLayout.vue'),
     redirect: '/device',
@@ -64,6 +58,7 @@ router.beforeEach((to, from, next) => {
     next('/login')
     return
   }
+  // 路由级权限校验
   const pageKey = to.meta.pageKey
   if (pageKey && !canAccessPage(pageKey)) {
     next('/device')

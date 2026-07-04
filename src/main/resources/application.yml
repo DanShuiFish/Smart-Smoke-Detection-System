@@ -35,10 +35,6 @@ mybatis-plus:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 mqtt:
-  topics:
-    subscribe: "smoke/+/data,smoke/+/heartbeat,smoke/+/alert"
-    publish-cmd: "smoke/%s/cmd"
-
   broker:
     url: tcp://192.168.130.101:1883
     client-id: smart-smoke-backend
@@ -49,14 +45,13 @@ mqtt:
       enabled: true
       max-delay: 10000
     topics:
-      data-up: "smoke/+/data"          # 濞戞挸锕ユ慨銈夊极閻楀牆绁﹂柣銊ュ椤撳綊姊奸崨顒€鐦滃Λ?(+濞戞挻妞介埀顒佸哺閸樸倗绮?
-      heartbeat-up: "smoke/+/heartbeat" # 闊洤鍟抽悜锕傛儍閸曨噮鍚傞梻鍐ㄦ噸鐎靛本锛?
-      cmd-down: "smoke/String.format/cmd"         # 濞戞挸顑呰ぐ鍌炲箳瑜嶉崺妤呭箰閸ワ附濮㈤柣銊ュ鐎靛本锛?(闁?%s 闁告濮崇紞鍛存晬鐎涚€塿a 闂佹彃鐬奸弫?String.format 闁哄洦瀵у畷?
+      data-up: "smoke/+/data"          # 涓婃姤鏁版嵁鐨勮闃呬富棰?(+涓洪€氶厤绗?
+      heartbeat-up: "smoke/+/heartbeat" # 蹇冭烦鐨勮闃呬富棰?
+      cmd-down: "smoke/String.format/cmd"         # 涓嬪彂鎺у埗鎸囦护鐨勪富棰?(鐢?%s 鍗犱綅锛孞ava 閲岀敤 String.format 鏇挎崲)
 logging:
   level:
     com.smartsmoke: debug
 
 
 sa-token:
-  token-name: Authorization
   token-prefix: Bearer

@@ -1,6 +1,5 @@
 package com.smartsmoke.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smartsmoke.common.PageResult;
 import com.smartsmoke.common.Result;
@@ -59,23 +58,5 @@ public class AlarmController {
         r.setResolveMethod(update.getResolveMethod()); r.setResolveDetail(update.getResolveDetail());
         r.setResolveTime(LocalDateTime.now());
         alarmRecordService.updateById(r); return Result.success();
-    }
-
-    @PutMapping("/{id}/archive")
-    public Result<Void> archive(@PathVariable Long id) {
-        LambdaUpdateWrapper<AlarmRecord> uw = new LambdaUpdateWrapper<>();
-        uw.eq(AlarmRecord::getId, id).set(AlarmRecord::getAlarmStatus, "ARCHIVED");
-        boolean updated = alarmRecordService.update(uw);
-        if (!updated) return Result.error(400, "告警不存在或已归档");
-        return Result.success();
-    }
-
-    @PutMapping("/{id}/close")
-    public Result<Void> close(@PathVariable Long id) {
-        LambdaUpdateWrapper<AlarmRecord> uw = new LambdaUpdateWrapper<>();
-        uw.eq(AlarmRecord::getId, id).set(AlarmRecord::getAlarmStatus, "CLOSED");
-        boolean updated = alarmRecordService.update(uw);
-        if (!updated) return Result.error(400, "告警不存在或已关闭");
-        return Result.success();
     }
 }
