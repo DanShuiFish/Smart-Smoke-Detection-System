@@ -1,6 +1,7 @@
 package com.smartsmoke.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -29,8 +30,11 @@ public class AlarmRecord {
     private Integer isBroadcastSent;
     private String alarmExt;
     private String remark;
+    @JsonIgnore
     @TableLogic
     private Integer isDeleted;
+    @TableField(exist = false)
+    private AiReviewRecord aiReview;
     private String createBy;
     private LocalDateTime createTime;
     private String updateBy;

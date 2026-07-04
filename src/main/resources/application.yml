@@ -51,4 +51,5 @@ logging:
 
 
 sa-token:
+  token-name: Authorization
   token-prefix: Bearer
