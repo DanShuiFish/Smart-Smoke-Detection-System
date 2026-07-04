@@ -1,7 +1,8 @@
-const { defineConfig } = require('vite')
+﻿const { defineConfig } = require('vite')
 const vue = require('@vitejs/plugin-vue')
 module.exports = defineConfig({
   plugins: [vue()],
+  outDir: '../src/main/resources/static',
   server: {
     port: 3000,
     proxy: {

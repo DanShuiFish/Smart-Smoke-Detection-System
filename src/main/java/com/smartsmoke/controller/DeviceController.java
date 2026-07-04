@@ -10,7 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 @RestController
-@RequestMapping("/api/v1/devices")
+@RequestMapping("/api/devices")
 @RequiredArgsConstructor
 public class DeviceController {
     private final DeviceService deviceService;

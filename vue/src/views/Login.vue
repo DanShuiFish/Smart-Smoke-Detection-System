@@ -150,7 +150,7 @@ async function handleSubmit() {
         realName: u.realName,
         role: u.role
       }))
-      router.push('/device')
+      window.location.href = '/fe2/dashboard-enhanced.html'
     } else {
       ElMessage.error(res.msg || '操作失败')
     }
