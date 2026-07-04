@@ -13,5 +13,5 @@ public class SmartSmokeApplication {
         System.out.println("  http://localhost:8080");
         System.out.println("========================================");
     }
-    //测试推送
+    //测试推送1
 }
