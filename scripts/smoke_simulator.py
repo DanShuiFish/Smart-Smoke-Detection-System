@@ -4,16 +4,18 @@
 功能:
   1. 正常模式: 每5秒发送一次正常环境数据 (烟雾0.02, 温度25°C)
   2. 告警模式: 一键发送超标数据触发整个告警链路
-  3. 离线模式: 停止心跳30秒以上模拟设备掉线
+  3. 离线模式: 停止指定设备心跳，模拟设备掉线
+  4. 动态管理设备: 添加/移除/查看设备
 
 依赖: pip install paho-mqtt
 MQTT Broker: 默认连接 tcp://192.168.130.101:1883 (EMQX on VMware Ubuntu)
 
 用法:
-  python smoke_simulator.py                # 交互式菜单模式
-  python smoke_simulator.py --normal       # 直接启动正常模式
-  python smoke_simulator.py --alert        # 发送一次告警数据后退出
-  python smoke_simulator.py --offline      # 模拟离线: 停发心跳
+  python smoke_simulator.py                          # 交互式菜单模式
+  python smoke_simulator.py --normal                 # 直接启动正常模式（全设备）
+  python smoke_simulator.py --alert SDS-001          # 发送一次告警数据后退出
+  python smoke_simulator.py --offline SDS-001        # 模拟指定设备离线
+  python smoke_simulator.py --add-device SDS-006 5号楼 2F 仓库  # 添加设备
 """
 
 import json
@@ -33,9 +35,11 @@ MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "fasong123")
 
 # 设备列表 (模拟多台烟感) — device_code 按 API 文档规范: SDS-00x
 DEVICES = [
-    {"device_id": 1, "device_code": "SDS-001", "building": "1号楼", "floor": "1F", "room": "101室"},
-    {"device_id": 2, "device_code": "SDS-002", "building": "1号楼", "floor": "3F", "room": "301室"},
-    {"device_id": 3, "device_code": "SDS-003", "building": "2号楼", "floor": "1F", "room": "食堂"},
+    {"device_id": 1, "device_code": "SDS-001", "building": "1栋", "floor": "1F", "room": "入户大厅"},
+    {"device_id": 2, "device_code": "SDS-002", "building": "1栋", "floor": "3F", "room": "走廊"},
+    {"device_id": 3, "device_code": "SDS-003", "building": "2栋", "floor": "5F", "room": "电梯前室"},
+    {"device_id": 4, "device_code": "SDS-004", "building": "3栋", "floor": "B1", "room": "车库C区"},
+    {"device_id": 5, "device_code": "SDS-005", "building": "4栋", "floor": "2F", "room": "消防通道"},
 ]
 
 # 模拟参数
@@ -43,12 +47,37 @@ NORMAL_INTERVAL = 5        # 正常数据发送间隔 (秒)
 HEARTBEAT_INTERVAL = 10    # 心跳发送间隔 (秒)
 OFFLINE_TIMEOUT = 35       # 离线判定: 超过此秒数不发心跳
 
-# ====================== 数据生成 ======================
+# 设备运行时状态
+_offline_devices = set()     # 当前被标记为离线的设备 code 集合
+_paused_devices = set()      # 临时暂停心跳的设备 code 集合
+_status_lock = threading.Lock()
+
 
 def now_ts():
     """返回当前毫秒级时间戳，匹配 DeviceReportDTO.ts"""
     return int(datetime.now().timestamp() * 1000)
 
+
+# ====================== 工具函数 ======================
+
+def find_device(device_code):
+    """根据 device_code 查找设备，返回 dict 或 None"""
+    for d in DEVICES:
+        if d["device_code"] == device_code:
+            return d
+    return None
+
+
+def device_label(d):
+    """生成设备可读标签"""
+    return f"{d['device_code']} ({d['building']}{d['floor']}{d['room']})"
+
+
+def list_device_codes():
+    return [d["device_code"] for d in DEVICES]
+
+
+# ====================== 数据生成 ======================
 
 def normal_sensor_data(device):
     """生成正常环境数据，匹配 DeviceReportDTO(deviceId/smoke/temp/humi/bat/ts)"""
@@ -93,25 +122,19 @@ class SmokeSimulator:
         self.running = False
         self.heartbeat_running = False
         self.heartbeat_thread = None
+        self._active_devices = None  # None=全部设备, set=指定设备
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):
-        """连接成功回调"""
         if reason_code == 0:
             self.connected = True
-            print(f"[OK] 已成功连接 MQTT Broker: {MQTT_BROKER}:{MQTT_PORT} (reason_code={reason_code})")
+            print(f"[OK] 已成功连接 MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
         else:
             self.connected = False
             print(f"[FAIL] 连接被拒绝, reason_code={reason_code}")
-            print("  可能原因: 1)EMQX未启动 2)认证被拒 3)ClientID冲突")
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
-        """断开回调"""
         self.connected = False
         print(f"[WARN] MQTT 连接断开, reason_code={reason_code}")
-
-    def _on_publish(self, client, userdata, mid, reason_code, properties):
-        """发布确认回调"""
-        print(f"  [PUB确认] mid={mid}, rc={reason_code}")
 
     def _connect(self, timeout=5):
         """阻塞式连接 MQTT Broker，确认连上才返回"""
@@ -127,7 +150,6 @@ class SmokeSimulator:
             self.client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
             self.client.loop_start()
 
-            # 阻塞等待连接确认
             waited = 0
             while not self.connected and waited < timeout:
                 time.sleep(0.5)
@@ -136,11 +158,7 @@ class SmokeSimulator:
             if self.connected:
                 return True
             else:
-                print(f"[FAIL] 连接超时 ({timeout}秒), 请检查:")
-                print(f"  1. Ubuntu虚拟机是否已启动")
-                print(f"  2. EMQX容器是否运行: docker ps | grep emqx")
-                print(f"  3. 防火墙是否放行1883端口: sudo ufw status")
-                print(f"  4. EMQX Dashboard: http://{MQTT_BROKER}:18083")
+                print(f"[FAIL] 连接超时 ({timeout}秒)")
                 self._disconnect()
                 return False
 
@@ -153,29 +171,47 @@ class SmokeSimulator:
         """发送一条 MQTT 消息"""
         if self.client is None or not self.connected:
             print("[ERR] MQTT 未连接, 无法发送")
-            return
+            return False
         payload_str = json.dumps(payload_dict, ensure_ascii=False)
         info = self.client.publish(topic, payload_str, qos=1)
-        status = "已送达" if info.rc == 0 else f"失败(rc={info.rc})"
-        print(f"  [{datetime.now().strftime('%H:%M:%S')}] → {topic} [{status}]")
-        print(f"    {payload_str}")
+        if info.rc == 0:
+            print(f"  [{datetime.now().strftime('%H:%M:%S')}] → {topic}")
+            return True
+        else:
+            print(f"  [FAIL] → {topic} rc={info.rc}")
+            return False
 
-    # ---- 正常模式 ----
-    def run_normal(self):
-        """持续发送正常数据 + 心跳"""
+    def _get_active_devices(self):
+        """获取当前应运行的设备列表（排除离线设备）"""
+        if self._active_devices:
+            return [d for d in DEVICES if d["device_code"] in self._active_devices]
+        return list(DEVICES)
+
+    # ==================== 正常模式 ====================
+
+    def run_normal(self, device_codes=None):
+        """持续发送正常数据 + 心跳。
+        device_codes: 可选，指定只运行哪些设备（None=全部）
+        """
         if not self._connect():
             return
         self.running = True
-        self._start_heartbeat()
+        self._active_devices = set(device_codes) if device_codes else None
 
-        print("\n[RUN] 正常模式启动 — 每5秒发数据, 每10秒发心跳")
-        print("  打开 MQTTX 订阅 smoke/# 查看消息")
-        print("  或访问 http://192.168.130.101:18083 主题监控")
-        print("  按 Ctrl+C 停止...\n")
+        devices = self._get_active_devices()
+        print(f"\n[RUN] 正常模式启动 — 每{NORMAL_INTERVAL}秒发数据, 每{HEARTBEAT_INTERVAL}秒发心跳")
+        print(f"  设备数: {len(devices)} 台 — {[d['device_code'] for d in devices]}")
+        print(f"  按 Ctrl+C 停止...\n")
+
+        self._start_heartbeat()
 
         try:
             while self.running:
-                for dev in DEVICES:
+                devices = self._get_active_devices()
+                for dev in devices:
+                    with _status_lock:
+                        if dev["device_code"] in _offline_devices:
+                            continue
                     topic_data = f"smoke/{dev['device_code']}/data"
                     data = normal_sensor_data(dev)
                     self._publish(topic_data, data)
@@ -183,70 +219,89 @@ class SmokeSimulator:
         except KeyboardInterrupt:
             self.stop()
 
-    # ---- 告警模式 ----
+    # ==================== 告警模式 ====================
+
     def send_alert(self, device_code=None, smoke_val=0.35, temp_val=68.0):
         """发送一次告警数据 (一键触发全链路)"""
         if not self._connect():
             return
 
-        target = DEVICES[0]
+        target = None
         if device_code:
-            for d in DEVICES:
-                if d["device_code"] == device_code:
-                    target = d
-                    break
-            else:
+            target = find_device(device_code)
+            if target is None:
                 print(f"[WARN] 未找到设备 {device_code}, 使用默认设备")
+                target = DEVICES[0]
+        else:
+            target = DEVICES[0]
 
-        print(f"\n[ALERT!] 向 {target['device_code']} ({target['building']}{target['floor']}{target['room']}) 发送火警告警!")
-        print(f"  烟雾: {smoke_val} mg/m³ (阈值 0.1)")
-        print(f"  温度: {temp_val}°C (阈值 60°C)\n")
+        print(f"\n[ALERT!] 向 {device_label(target)} 发送火警告警!")
+        print(f"  烟雾: {smoke_val} mg/m³")
+        print(f"  温度: {temp_val}°C\n")
 
         topic = f"smoke/{target['device_code']}/data"
         data = alert_sensor_data(target, smoke_val, temp_val)
         self._publish(topic, data)
 
-        # 等一小会确保消息发出
         time.sleep(1)
         print("\n[DONE] 告警数据已发出, 预期链路:")
         print("  模拟器 → MQTT → MqttConsumer → AlarmRuleEngine → 告警 → WebSocket推送大屏")
         self._disconnect()
 
-    # ---- 离线模式 ----
-    def simulate_offline(self, device_code=None):
-        """停止心跳来模拟设备离线"""
-        target = DEVICES[0]
-        if device_code:
-            for d in DEVICES:
-                if d["device_code"] == device_code:
-                    target = d
-                    break
+    # ==================== 离线模式 ====================
 
-        print(f"\n[OFFLINE] 模拟 {target['device_code']} 离线")
+    def simulate_offline(self, device_code):
+        """停止指定设备心跳来模拟离线"""
+        target = find_device(device_code)
+        if target is None:
+            print(f"[ERR] 设备不存在: {device_code}")
+            print(f"  可用设备: {list_device_codes()}")
+            return
+
+        # 检查是否已经离线
+        with _status_lock:
+            if device_code in _offline_devices:
+                print(f"[WARN] 设备 {device_code} 已处于离线状态，无需重复操作")
+                return
+
+        print(f"\n[OFFLINE] 模拟 {device_label(target)} 离线")
         print(f"  停止发送心跳 {OFFLINE_TIMEOUT} 秒...")
         print(f"  预期: Redis Key 过期 → 键空间通知 → 生成离线告警\n")
 
-        if self._connect():
+        # 标记为离线，心跳线程将跳过此设备
+        with _status_lock:
+            _offline_devices.add(device_code)
+
+        # 如果已连接，先发最后一次心跳（确保 Redis Key 存在）
+        if self.connected or self._connect():
             topic_hb = f"smoke/{target['device_code']}/heartbeat"
             hb = heartbeat_data(target)
             self._publish(topic_hb, hb)
             time.sleep(1)
             self._disconnect()
 
+        # 倒计时等待 Redis Key 过期
         for i in range(OFFLINE_TIMEOUT, 0, -5):
-            print(f"  剩余 {i} 秒...")
+            print(f"  [{device_code}] 剩余 {i} 秒...")
             time.sleep(5)
 
-        print(f"\n[DONE] 已离线 {OFFLINE_TIMEOUT} 秒, 后端应已触发离线告警")
+        print(f"\n[DONE] {device_code} 已离线 {OFFLINE_TIMEOUT} 秒, 后端应已触发离线告警")
 
-    # ---- 心跳线程 ----
+    # ==================== 心跳线程 ====================
+
     def _start_heartbeat(self):
-        """后台线程定时发心跳"""
+        """后台线程定时发心跳（自动跳过离线设备）"""
+        if self.heartbeat_thread and self.heartbeat_thread.is_alive():
+            return
         self.heartbeat_running = True
 
         def _loop():
             while self.heartbeat_running and self.running:
-                for dev in DEVICES:
+                devices = self._get_active_devices()
+                for dev in devices:
+                    with _status_lock:
+                        if dev["device_code"] in _offline_devices:
+                            continue
                     topic = f"smoke/{dev['device_code']}/heartbeat"
                     hb = heartbeat_data(dev)
                     self._publish(topic, hb)
@@ -255,11 +310,14 @@ class SmokeSimulator:
         self.heartbeat_thread = threading.Thread(target=_loop, daemon=True)
         self.heartbeat_thread.start()
 
-    # ---- 停止 ----
+    # ==================== 停止 ====================
+
     def stop(self):
         print("\n[STOP] 正在停止模拟器...")
         self.running = False
         self.heartbeat_running = False
+        with _status_lock:
+            _offline_devices.clear()
         self._disconnect()
         print("[STOP] 已停止")
 
@@ -271,6 +329,78 @@ class SmokeSimulator:
             self.connected = False
 
 
+# ====================== 设备管理 ======================
+
+def add_device(device_code, building, floor, room):
+    """动态添加设备到列表"""
+    if find_device(device_code):
+        print(f"[WARN] 设备 {device_code} 已存在，跳过")
+        return False
+
+    new_id = max(d["device_id"] for d in DEVICES) + 1 if DEVICES else 1
+    DEVICES.append({
+        "device_id": new_id,
+        "device_code": device_code,
+        "building": building,
+        "floor": floor,
+        "room": room,
+    })
+    print(f"[OK] 已添加设备: {device_label(DEVICES[-1])}")
+    print(f"  当前设备总数: {len(DEVICES)}")
+    return True
+
+
+def remove_device(device_code):
+    """从列表中移除设备"""
+    target = find_device(device_code)
+    if target is None:
+        print(f"[WARN] 设备不存在: {device_code}")
+        return False
+    DEVICES.remove(target)
+    print(f"[OK] 已移除设备: {device_code}")
+    print(f"  当前设备总数: {len(DEVICES)}")
+    return True
+
+
+def show_devices():
+    """显示所有设备"""
+    print("\n  当前设备列表:")
+    print(f"  {'编号':<10} {'楼栋':<8} {'楼层':<6} {'位置'}")
+    print(f"  {'-' * 40}")
+    for d in DEVICES:
+        offline_mark = " [离线]" if d["device_code"] in _offline_devices else ""
+        print(f"  {d['device_code']:<10} {d['building']:<8} {d['floor']:<6} {d['room']}{offline_mark}")
+    print(f"\n  共 {len(DEVICES)} 台设备")
+
+
+def add_device_interactive():
+    """交互式添加设备"""
+    print("\n  === 添加设备 ===")
+    show_devices()
+    code = input("  设备编号 (如 SDS-006): ").strip().upper()
+    if not code:
+        print("  已取消")
+        return
+    building = input("  楼栋 (如 5号楼): ").strip() or "未指定"
+    floor = input("  楼层 (如 2F): ").strip() or "未知"
+    room = input("  位置 (如 仓库): ").strip() or "未指定"
+    add_device(code, building, floor, room)
+
+
+def remove_device_interactive():
+    """交互式移除设备"""
+    if len(DEVICES) <= 1:
+        print("[WARN] 至少保留一台设备")
+        return
+    print("\n  === 移除设备 ===")
+    show_devices()
+    code = input("  输入要移除的设备编号: ").strip().upper()
+    if not code:
+        print("  已取消")
+        return
+    remove_device(code)
+
+
 # ====================== 交互式菜单 ======================
 
 def interactive_menu():
@@ -278,18 +408,23 @@ def interactive_menu():
     sim = SmokeSimulator()
 
     while True:
-        print("\n" + "=" * 50)
-        print("  智慧烟感模拟器 - 主菜单 (BE1)")
+        # 显示当前设备状态
+        show_devices()
+
         print("=" * 50)
-        print("  1. 正常模式 — 持续发送正常数据 + 心跳")
+        print("  功能菜单")
+        print("=" * 50)
+        print("  1. 正常模式 — 持续发送正常数据 + 心跳（全设备）")
         print("  2. 告警模式 — 发送一次火警告警数据")
-        print("  3. 离线模式 — 停止心跳, 模拟设备掉线")
-        print("  4. 指定设备告警")
-        print("  5. 指定设备离线")
+        print("  3. 离线模式 — 指定设备停止心跳，模拟掉线")
+        print("  4. 指定设备告警 — 自定义烟雾浓度和温度")
+        print("  5. 指定设备离线 — 选择一台设备模拟离线")
+        print("  6. 添加设备")
+        print("  7. 移除设备")
         print("  0. 退出")
         print("-" * 50)
 
-        choice = input("  请选择 [0-5]: ").strip()
+        choice = input("  请选择 [0-7]: ").strip()
 
         if choice == "1":
             sim.run_normal()
@@ -298,11 +433,19 @@ def interactive_menu():
             sim.send_alert()
 
         elif choice == "3":
-            sim.simulate_offline()
+            print(f"  可用设备: {list_device_codes()}")
+            code = input("  输入设备编号: ").strip().upper()
+            if code:
+                sim.simulate_offline(code)
+            else:
+                print("  已取消")
 
         elif choice == "4":
-            print(f"  可用设备: {[d['device_code'] for d in DEVICES]}")
-            code = input("  输入设备编号: ").strip()
+            print(f"  可用设备: {list_device_codes()}")
+            code = input("  输入设备编号: ").strip().upper()
+            if not code:
+                print("  已取消")
+                continue
             try:
                 smoke_val = float(input("  烟雾浓度 (默认 0.35): ").strip() or "0.35")
                 temp_val = float(input("  温度 (默认 68.0): ").strip() or "68.0")
@@ -312,9 +455,23 @@ def interactive_menu():
             sim.send_alert(code, smoke_val, temp_val)
 
         elif choice == "5":
-            print(f"  可用设备: {[d['device_code'] for d in DEVICES]}")
-            code = input("  输入设备编号: ").strip()
+            print(f"  可用设备: {list_device_codes()}")
+            code = input("  输入设备编号: ").strip().upper()
+            if not code:
+                print("  已取消")
+                continue
+            # 离线前检查状态
+            with _status_lock:
+                if code in _offline_devices:
+                    print(f"  [WARN] {code} 已经处于离线状态")
+                    continue
             sim.simulate_offline(code)
+
+        elif choice == "6":
+            add_device_interactive()
+
+        elif choice == "7":
+            remove_device_interactive()
 
         elif choice == "0":
             print("  再见!")
@@ -325,20 +482,68 @@ def interactive_menu():
 
 # ====================== 入口 ======================
 
+def print_usage():
+    print("用法: python smoke_simulator.py [选项]")
+    print()
+    print("无参数                        交互式菜单模式")
+    print("--normal [device_codes]       正常模式 (可选: 指定设备, 逗号分隔)")
+    print("--alert [device_code]         发送一次告警")
+    print("--offline <device_code>       模拟指定设备离线")
+    print("--add-device <code> <楼栋> <楼层> <位置>  动态添加设备")
+    print("--remove-device <code>        移除设备")
+    print("--list                        列出所有设备")
+    print()
+    print("示例:")
+    print("  python smoke_simulator.py")
+    print("  python smoke_simulator.py --normal")
+    print("  python smoke_simulator.py --normal SDS-001,SDS-002")
+    print("  python smoke_simulator.py --alert SDS-001")
+    print("  python smoke_simulator.py --offline SDS-003")
+    print("  python smoke_simulator.py --add-device SDS-006 5号楼 2F 仓库")
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         sim = SmokeSimulator()
         arg = sys.argv[1]
+
         if arg == "--normal":
-            sim.run_normal()
+            codes = None
+            if len(sys.argv) > 2:
+                codes = [c.strip() for c in sys.argv[2].split(",")]
+            sim.run_normal(codes)
+
         elif arg == "--alert":
             code = sys.argv[2] if len(sys.argv) > 2 else None
             sim.send_alert(code)
+
         elif arg == "--offline":
-            code = sys.argv[2] if len(sys.argv) > 2 else None
-            sim.simulate_offline(code)
+            if len(sys.argv) < 3:
+                print("[ERR] --offline 需要指定设备编号")
+                print(f"  可用设备: {list_device_codes()}")
+                sys.exit(1)
+            sim.simulate_offline(sys.argv[2])
+
+        elif arg == "--add-device":
+            if len(sys.argv) < 6:
+                print("[ERR] --add-device 需要: <编号> <楼栋> <楼层> <位置>")
+                sys.exit(1)
+            add_device(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+
+        elif arg == "--remove-device":
+            if len(sys.argv) < 3:
+                print("[ERR] --remove-device 需要指定设备编号")
+                sys.exit(1)
+            remove_device(sys.argv[2])
+
+        elif arg == "--list":
+            show_devices()
+
+        elif arg in ("--help", "-h"):
+            print_usage()
+
         else:
             print(f"未知参数: {arg}")
-            print("用法: python smoke_simulator.py [--normal|--alert|--offline] [device_code]")
+            print_usage()
     else:
         interactive_menu()

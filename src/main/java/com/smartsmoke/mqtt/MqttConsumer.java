@@ -13,8 +13,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -30,15 +32,18 @@ public class MqttConsumer {
     private final MqttClient mqttClient;
     private final AlarmRuleEngine alarmRuleEngine;
     private final DeviceMapper deviceMapper;
+    private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${mqtt.topics.subscribe}")
     private String subscribeTopics;
 
-    public MqttConsumer(MqttClient mqttClient, AlarmRuleEngine alarmRuleEngine, DeviceMapper deviceMapper) {
+    public MqttConsumer(MqttClient mqttClient, AlarmRuleEngine alarmRuleEngine,
+                        DeviceMapper deviceMapper, StringRedisTemplate stringRedisTemplate) {
         this.mqttClient = mqttClient;
         this.alarmRuleEngine = alarmRuleEngine;
         this.deviceMapper = deviceMapper;
+        this.stringRedisTemplate = stringRedisTemplate;
     }
 
     @PostConstruct
@@ -102,6 +107,12 @@ public class MqttConsumer {
             updateDevice.setSignalStrength(heartbeat.getRssi());
         }
         deviceMapper.updateById(updateDevice);
+
+        // Redis 心跳续期：Key 过期后由 RedisKeyspaceListener 触发离线告警
+        int ttl = device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 30;
+        stringRedisTemplate.opsForValue()
+                .set("device:heartbeat:" + heartbeat.getDeviceId(), "1", Duration.ofSeconds(ttl));
+
         log.debug("心跳更新: {} battery={}% rssi={}dBm", heartbeat.getDeviceId(), heartbeat.getBat(), heartbeat.getRssi());
     }
 

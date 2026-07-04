@@ -5,9 +5,9 @@ spring:
   application:
     name: smart-smoke-detection
   datasource:
-    url: jdbc:mysql://localhost:3306/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true
-    username: root
-    password: 123456
+    url: ${DB_URL:jdbc:mysql://192.168.130.101:3306/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:
@@ -17,10 +17,16 @@ spring:
       continue-on-error: true
   data:
     redis:
-      host: localhost
+      host: ${REDIS_HOST:192.168.130.101}
       port: 6379
       database: 0
       timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
 mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
   type-aliases-package: com.smartsmoke.entity
@@ -34,21 +40,21 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
 mqtt:
   broker:
-    url: tcp://192.168.130.101:1883
-    client-id: smart-smoke-backend
-    username: fasong
-    password: fasong123
+    url: ${MQTT_BROKER_URL:tcp://192.168.130.101:1883}
+    client-id: ${MQTT_CLIENT_ID:smart-smoke-backend}
+    username: ${MQTT_USERNAME:fasong}
+    password: ${MQTT_PASSWORD:fasong123}
     completion-timeout: 3000
     reconnect:
       enabled: true
       max-delay: 10000
-    topics:
-      data-up: "smoke/+/data"          # 涓婃姤鏁版嵁鐨勮闃呬富棰?(+涓洪€氶厤绗?
-      heartbeat-up: "smoke/+/heartbeat" # 蹇冭烦鐨勮闃呬富棰?
-      cmd-down: "smoke/String.format/cmd"         # 涓嬪彂鎺у埗鎸囦护鐨勪富棰?(鐢?%s 鍗犱綅锛孞ava 閲岀敤 String.format 鏇挎崲)
+  topics:
+    subscribe: "smoke/+/data,smoke/+/heartbeat"
+    publish-cmd: "smoke/%s/cmd"
+
 logging:
   level:
     com.smartsmoke: debug
-

@@ -13,7 +13,7 @@ public class MqttPublisher {
     private final MqttClient mqttClient;
 
     // 【核心修改点】读取你在 yml 中新写的 publish-cmd 模板
-    @Value("${mqtt.topics.publish-cmd}")
+    @Value("${mqtt.topics.publish-cmd:smoke/%s/cmd}")
     private String cmdTopicTemplate;
 
     public MqttPublisher(MqttClient mqttClient) {

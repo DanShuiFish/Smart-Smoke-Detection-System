@@ -77,12 +77,11 @@ public class AlarmRuleEngine {
         String alarmLevel = (matched != null) ? matched.getAlarmLevel() : "MEDIUM";
         BigDecimal thresholdVal = (matched != null) ? matched.getThresholdMax() : data.getSmokeConcentration();
 
-        // 2. 生成告警编号 ALG-yyyyMMdd-nnn
+        // 2. 生成告警编号 ALG-yyyyMMdd-HHmmss-SSS-类型
+        // 使用毫秒时间戳 + 类型后缀确保并发唯一
         String datePart = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        long todayCount = alarmRecordService.lambdaQuery()
-                .ge(AlarmRecord::getAlarmTime, LocalDate.now().atStartOfDay())
-                .count();
-        String alarmCode = "ALG-" + datePart + "-" + String.format("%03d", todayCount + 1);
+        String timePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
+        String alarmCode = "ALG-" + datePart + "-" + timePart + "-" + thresholdType.substring(0, 2);
 
         // 3. 创建告警记录
         AlarmRecord record = new AlarmRecord();
