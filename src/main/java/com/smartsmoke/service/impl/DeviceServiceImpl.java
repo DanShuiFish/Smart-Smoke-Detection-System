@@ -1,6 +1,7 @@
 package com.smartsmoke.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.smartsmoke.entity.DeviceStatusStatsVO;
 import com.smartsmoke.entity.SmokeDevice;
 import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.service.DeviceService;
@@ -31,5 +32,10 @@ public class DeviceServiceImpl extends ServiceImpl<DeviceMapper, SmokeDevice> im
         updateById(update);
 
         log.info("设备状态已更新为 OFFLINE: {} ({})", deviceCode, device.getDeviceName());
+    }
+
+    @Override
+    public DeviceStatusStatsVO getStats() {
+        return baseMapper.getDeviceStats();
     }
 }
