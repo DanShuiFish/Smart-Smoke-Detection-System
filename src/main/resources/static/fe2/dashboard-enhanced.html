@@ -1,1 +1,171 @@
-<!DOCTYPE html> <html lang="zh-CN">   <head>     <meta charset="UTF-8" />     <meta name="viewport" content="width=device-width, initial-scale=1.0" />     <title>FE2 - 智慧烟感 PC 大屏</title>     <link rel="stylesheet" href="./dashboard-enhanced.css" />   </head>   <body>     <div class="app-layout">       <aside class="sidebar" aria-label="主导航侧边栏">         <div class="sidebar-brand">           <div class="brand-mark">智慧烟感</div>           <div class="brand-copy">             <strong>智慧烟感</strong>             <span>预警系统</span>           </div>         </div>         <nav class="sidebar-nav" aria-label="主导航">           <button class="nav-btn active" data-view="screen" title="数据大屏"><span class="nav-icon">总</span><span class="nav-text">数据大屏</span></button>           <button class="nav-btn" data-view="devices" title="设备管理"><span class="nav-icon">设</span><span class="nav-text">设备管理</span></button>           <button class="nav-btn" data-view="analysis" title="数据分析"><span class="nav-icon">分</span><span class="nav-text">数据分析</span></button>           <button class="nav-btn" data-view="ai" title="AI 智能问答"><span class="nav-icon">智</span><span class="nav-text">AI 智能问答</span></button>           <button class="nav-btn" data-view="alarms" title="告警日志"><span class="nav-icon">警</span><span class="nav-text">告警日志</span></button>         </nav>       </aside>        <main class="workspace">         <header class="topbar">           <div class="title-block">             <h2 id="viewTitle">首页 / 数据大屏</h2>             <p id="viewSubTitle">设备态势、实时监测、告警联动</p>           </div>           <div class="user-area">             <div class="user-info">当前用户: <span id="userDisplay">--</span></div>             <button id="btnLogout" class="btn" type="button">退出登录</button>           </div>           <div class="runtime-meta">             <span id="healthStatus" class="chip danger">服务: 检查中</span>             <span id="mqttStatus" class="chip warn">MQTT: --</span>             <span id="redisStatus" class="chip warn">Redis: --</span>             <span id="wsStatus" class="chip warn">WebSocket: --</span>             <span id="clock" class="clock">--:--:--</span>           </div>         </header>          <section class="page-banner">           <div>             <p class="page-kicker">消防 PC 管理端</p>             <h3 id="bannerTitle">首页 / 数据大屏</h3>           </div>           <div class="banner-meta">             <span id="activeAlarmStatus" class="chip warn">活跃告警: 0</span>             <span id="systemLastSync" class="chip">最近同步: --</span>           </div>         </section>          <div id="globalAlert" class="global-alert hidden"></div>          <section id="view-screen" class="view active">           <div class="kpi-grid">             <article class="kpi-card"><h3>设备总数</h3><strong id="kpiTotalDevices">0</strong></article>             <article class="kpi-card"><h3>在线设备</h3><strong id="kpiOnlineDevices">0</strong></article>             <article class="kpi-card"><h3>今日告警</h3><strong id="kpiTodayAlarms">0</strong></article>             <article class="kpi-card danger"><h3>当前火警</h3><strong id="kpiPendingAlarms">0</strong></article>           </div>            <div class="screen-stats-grid">             <article class="stat-panel"><h4>烟雾浓度实时监测</h4><div class="stat-value" id="screenSmokeValue">--</div><div class="stat-unit">mg/m³</div></article>             <article class="stat-panel"><h4>温度实时监测</h4><div class="stat-value warm" id="screenTempValue">--</div><div class="stat-unit">℃</div></article>             <article class="stat-panel"><h4>设备在线率</h4><div class="stat-value ok" id="screenOnlineRate">--</div><div class="stat-unit">%</div></article>             <article class="stat-panel"><h4>信号强度</h4><div class="stat-value" id="screenSignalValue">--</div><div class="stat-unit">dBm</div></article>           </div>            <div class="panel-grid screen-grid">             <article class="panel panel-span-2">               <div class="panel-header">                 <h3>24小时烟雾浓度趋势</h3>                 <div class="toolbar"><select id="screenDeviceSelect"></select><button id="btnRefreshScreen" class="btn">刷新</button></div>               </div>               <div id="chartRealtime" class="chart"></div>             </article>             <article class="panel"><div class="panel-header"><h3>设备在线状态</h3></div><div id="chartScreenDeviceStatus" class="chart"></div></article>             <article class="panel"><div class="panel-header"><h3>告警类型占比</h3></div><div id="chartScreenAlarmType" class="chart"></div></article>             <article class="panel panel-span-2"><div class="panel-header"><h3>告警分布热力图</h3></div><div id="chartHeatmap" class="chart"></div></article>             <article class="panel"><div class="panel-header"><h3>七日告警趋势</h3></div><div id="chartScreenTrend" class="chart"></div></article>             <article class="panel panel-span-2"><div class="panel-header"><h3>楼栋设备柱状分布</h3></div><div id="chartScreenBuilding" class="chart"></div></article>             <article class="panel panel-span-2"><div class="panel-header"><h3>最近告警</h3><button id="btnOpenAlarms" class="btn ghost">查看全部</button></div><ul id="screenAlarmList" class="list"></ul></article>           </div>         </section>          <section id="view-devices" class="view">           <div class="module-heading"><div><h3>设备管理</h3><p>筛选、查看和分页浏览设备状态</p></div><button id="btnRefreshDevices" class="btn">刷新</button></div>           <div class="panel">             <div class="panel-header">               <h3>设备列表</h3>               <div class="toolbar">                 <input id="deviceKeyword" type="text" placeholder="搜索设备名称/编号" />                 <select id="deviceStatusFilter"><option value="">全部状态</option><option value="ONLINE">在线</option><option value="OFFLINE">离线</option><option value="ERROR">故障</option><option value="INACTIVE">未激活</option></select>                 <button id="btnSearchDevices" class="btn btn-main">查询</button>               </div>             </div>             <div class="batch-bar"><span id="deviceBatchHint" class="batch-hint">已选择 0 台设备</span><div class="batch-actions"><button id="btnSelectAllDevices" class="btn">全选</button><button id="btnClearDevices" class="btn">取消选择</button><button id="btnBatchDeleteDevices" class="btn danger">批量删除</button></div></div>             <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="deviceSelectAll" /></th><th>设备名称</th><th>设备编号</th><th>楼栋</th><th>楼层</th><th>状态</th><th>烟雾</th><th>温度</th><th>湿度</th><th>详情</th></tr></thead><tbody id="deviceTableBody"></tbody></table></div>             <div id="devicePagination" class="pagination-bar"></div>           </div>         </section>          <section id="view-analysis" class="view">           <div class="module-heading"><div><h3>数据分析</h3><p>趋势、占比、设备分布一屏看清</p></div><button id="btnRefreshAnalysis" class="btn">刷新</button></div>           <div class="panel-grid analysis-grid">             <article class="panel"><div class="panel-header"><h3>近 7 日告警趋势</h3></div><div id="chartAlarmTrend" class="chart"></div></article>             <article class="panel"><div class="panel-header"><h3>告警类型占比</h3></div><div id="chartAlarmType" class="chart"></div></article>             <article class="panel panel-span-2"><div class="panel-header"><h3>设备在线状态</h3></div><div id="chartDeviceStatus" class="chart"></div></article>             <article class="panel panel-span-2"><div class="panel-header"><h3>楼栋设备分布</h3></div><div id="chartDeviceBuilding" class="chart"></div></article>           </div>         </section>          <section id="view-ai" class="view">           <div class="module-heading"><div><h3>AI 智能问答</h3><p>火情研判、消防预案和广播指令联动</p></div><button id="btnRefreshAi" class="btn">刷新</button></div>           <div class="panel-grid ai-grid">             <article class="panel"><div class="panel-header"><h3>消防知识库对话</h3></div><div id="chatLog" class="chat-log"></div><div class="chat-input-row"><input id="chatInput" type="text" placeholder="输入问题，例如：当前火警处置流程" /><button id="btnSendQuestion" class="btn">发送</button></div></article>             <article class="panel"><div class="panel-header"><h3>当前火情研判</h3></div><div id="aiJudgement" class="judgement">暂无活跃告警</div><button id="btnBroadcast" class="btn btn-main danger-wide">下发广播指令</button></article>           </div>         </section>          <section id="view-alarms" class="view">           <div class="module-heading"><div><h3>告警日志</h3><p>支持筛选、分页和处置操作</p></div><button id="btnRefreshAlarms" class="btn">刷新</button></div>           <div class="panel">             <div class="panel-header">               <h3>告警日志</h3>               <div class="toolbar">                 <select id="alarmStatusFilter"><option value="">全部状态</option><option value="PENDING">待处理</option><option value="CONFIRMING">确认中</option><option value="CONFIRMED">已确认</option><option value="RESOLVED">已处置</option><option value="ARCHIVED">已归档</option><option value="CLOSED">已关闭</option></select>                 <button id="btnLoadAlarms" class="btn btn-main">查询</button>               </div>             </div>             <div class="batch-bar"><span id="alarmBatchHint" class="batch-hint">已选择 0 条告警</span><div class="batch-actions"><button id="btnSelectAllAlarms" class="btn">全选</button><button id="btnClearAlarms" class="btn">取消选择</button><button id="btnBatchConfirmAlarms" class="btn btn-main">批量确认</button><button id="btnBatchResolveAlarms" class="btn btn-main">批量处置</button><button id="btnBatchArchiveAlarms" class="btn">批量归档</button><button id="btnBatchCloseAlarms" class="btn danger">批量关闭</button></div></div>             <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="alarmSelectAll" /></th><th>时间</th><th>告警类型</th><th>等级</th><th>状态</th><th>设备</th><th>楼栋</th><th>处置操作</th><th>详情</th></tr></thead><tbody id="alarmTableBody"></tbody></table></div>             <div id="alarmPagination" class="pagination-bar"></div>           </div>         </section>          <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle">           <div class="modal-mask" data-modal-close="true"></div>           <div class="modal-panel">             <div class="modal-header"><h3 id="detailModalTitle">详情</h3><button class="btn" type="button" data-modal-close="true">关闭</button></div>             <div id="detailModalBody" class="modal-body"></div>           </div>         </div>          <footer class="dashboard-footer"><span>系统版本: v2.0</span><span>部署环境: FE2-PC</span><span id="footerSyncTime">最后同步: --</span><span>© 2026 智慧烟感预警系统</span></footer>       </main>     </div>     <script src="./dashboard-enhanced.js"></script>   </body> </html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FE2 - 智慧烟感 PC 大屏</title>
+    <link rel="stylesheet" href="./dashboard-enhanced.css" />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  </head>
+  <body>
+    <div class="app-layout">
+      <aside class="sidebar" aria-label="主导航侧边栏">
+        <div class="sidebar-brand">
+          <div class="brand-mark">智慧烟感</div>
+          <div class="brand-copy">
+            <strong>智慧烟感</strong>
+            <span>预警系统</span>
+          </div>
+        </div>
+        <nav class="sidebar-nav" aria-label="主导航">
+          <button class="nav-btn active" data-view="screen" title="数据大屏"><span class="nav-icon">总</span><span class="nav-text">数据大屏</span></button>
+          <button class="nav-btn" data-view="devices" title="设备管理"><span class="nav-icon">设</span><span class="nav-text">设备管理</span></button>
+          <button class="nav-btn" data-view="analysis" title="数据分析"><span class="nav-icon">分</span><span class="nav-text">数据分析</span></button>
+          <button class="nav-btn" data-view="ai" title="AI 智能问答"><span class="nav-icon">智</span><span class="nav-text">AI 智能问答</span></button>
+          <button class="nav-btn" data-view="alarms" title="告警日志"><span class="nav-icon">警</span><span class="nav-text">告警日志</span></button>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div class="title-block">
+            <h2 id="viewTitle">首页 / 数据大屏</h2>
+            <p id="viewSubTitle">设备态势、实时监测、告警联动</p>
+          </div>
+          <div class="runtime-meta">
+            <span id="healthStatus" class="chip danger">服务: 检查中</span>
+            <span id="mqttStatus" class="chip warn">MQTT: --</span>
+            <span id="redisStatus" class="chip warn">Redis: --</span>
+            <span id="wsStatus" class="chip warn">WebSocket: --</span>
+            <span id="clock" class="clock">--:--:--</span>
+          </div>
+        </header>
+
+        <section class="page-banner">
+          <div>
+            <p class="page-kicker">消防 PC 管理端</p>
+            <h3 id="bannerTitle">首页 / 数据大屏</h3>
+          </div>
+          <div class="banner-meta">
+            <span id="activeAlarmStatus" class="chip warn">活跃告警: 0</span>
+            <span id="systemLastSync" class="chip">最近同步: --</span>
+          </div>
+        </section>
+
+        <div id="globalAlert" class="global-alert hidden"></div>
+
+        <section id="view-screen" class="view active">
+          <div class="kpi-grid">
+            <article class="kpi-card"><h3>设备总数</h3><strong id="kpiTotalDevices">0</strong></article>
+            <article class="kpi-card"><h3>在线设备</h3><strong id="kpiOnlineDevices">0</strong></article>
+            <article class="kpi-card"><h3>今日告警</h3><strong id="kpiTodayAlarms">0</strong></article>
+            <article class="kpi-card danger"><h3>当前火警</h3><strong id="kpiPendingAlarms">0</strong></article>
+          </div>
+
+          <div class="screen-stats-grid">
+            <article class="stat-panel"><h4>烟雾浓度实时监测</h4><div class="stat-value" id="screenSmokeValue">--</div><div class="stat-unit">mg/m³</div></article>
+            <article class="stat-panel"><h4>温度实时监测</h4><div class="stat-value warm" id="screenTempValue">--</div><div class="stat-unit">℃</div></article>
+            <article class="stat-panel"><h4>设备在线率</h4><div class="stat-value ok" id="screenOnlineRate">--</div><div class="stat-unit">%</div></article>
+            <article class="stat-panel"><h4>信号强度</h4><div class="stat-value" id="screenSignalValue">--</div><div class="stat-unit">dBm</div></article>
+          </div>
+
+          <div class="panel-grid screen-grid">
+            <article class="panel panel-span-2">
+              <div class="panel-header">
+                <h3>24小时烟雾浓度趋势</h3>
+                <div class="toolbar"><select id="screenDeviceSelect"></select><button id="btnRefreshScreen" class="btn">刷新</button></div>
+              </div>
+              <div id="chartRealtime" class="chart"></div>
+            </article>
+            <article class="panel"><div class="panel-header"><h3>设备在线状态</h3></div><div id="chartScreenDeviceStatus" class="chart"></div></article>
+            <article class="panel"><div class="panel-header"><h3>告警类型占比</h3></div><div id="chartScreenAlarmType" class="chart"></div></article>
+            <article class="panel panel-span-2"><div class="panel-header"><h3>告警分布热力图</h3></div><div id="chartHeatmap" class="chart"></div></article>
+            <article class="panel"><div class="panel-header"><h3>七日告警趋势</h3></div><div id="chartScreenTrend" class="chart"></div></article>
+            <article class="panel panel-span-2"><div class="panel-header"><h3>楼栋设备柱状分布</h3></div><div id="chartScreenBuilding" class="chart"></div></article>
+            <article class="panel panel-span-2"><div class="panel-header"><h3>最近告警</h3><button id="btnOpenAlarms" class="btn ghost">查看全部</button></div><ul id="screenAlarmList" class="list"></ul></article>
+          </div>
+        </section>
+
+        <section id="view-devices" class="view">
+          <div class="module-heading"><div><h3>设备管理</h3><p>筛选、查看和分页浏览设备状态</p></div><button id="btnRefreshDevices" class="btn">刷新</button></div>
+          <div class="panel">
+            <div class="panel-header">
+              <h3>设备列表</h3>
+              <div class="toolbar">
+                <input id="deviceKeyword" type="text" placeholder="搜索设备名称/编号" />
+                <select id="deviceStatusFilter"><option value="">全部状态</option><option value="ONLINE">在线</option><option value="OFFLINE">离线</option><option value="ERROR">故障</option><option value="INACTIVE">未激活</option></select>
+                <button id="btnSearchDevices" class="btn btn-main">查询</button>
+              </div>
+            </div>
+            <div class="batch-bar"><span id="deviceBatchHint" class="batch-hint">已选择 0 台设备</span><div class="batch-actions"><button id="btnSelectAllDevices" class="btn">全选</button><button id="btnClearDevices" class="btn">取消选择</button><button id="btnBatchDeleteDevices" class="btn danger">批量删除</button></div></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="deviceSelectAll" /></th><th>设备名称</th><th>设备编号</th><th>楼栋</th><th>楼层</th><th>状态</th><th>烟雾</th><th>温度</th><th>湿度</th><th>详情</th></tr></thead><tbody id="deviceTableBody"></tbody></table></div>
+            <div id="devicePagination" class="pagination-bar"></div>
+          </div>
+        </section>
+
+        <section id="view-analysis" class="view">
+          <div class="module-heading"><div><h3>数据分析</h3><p>趋势、占比、设备分布一屏看清</p></div><button id="btnRefreshAnalysis" class="btn">刷新</button></div>
+          <div class="panel-grid analysis-grid">
+            <article class="panel"><div class="panel-header"><h3>近 7 日告警趋势</h3></div><div id="chartAlarmTrend" class="chart"></div></article>
+            <article class="panel"><div class="panel-header"><h3>告警类型占比</h3></div><div id="chartAlarmType" class="chart"></div></article>
+            <article class="panel panel-span-2"><div class="panel-header"><h3>设备在线状态</h3></div><div id="chartDeviceStatus" class="chart"></div></article>
+            <article class="panel panel-span-2"><div class="panel-header"><h3>楼栋设备分布</h3></div><div id="chartDeviceBuilding" class="chart"></div></article>
+          </div>
+        </section>
+
+        <section id="view-ai" class="view">
+          <div class="module-heading"><div><h3>AI 智能问答</h3><p>灾情研判，辅助决策及广播指令联动</p></div><div class="toolbar"><button id="btnOpenLogDrawer" class="btn ghost">📋 调试日志<span class="log-badge-count hidden" id="logBadge">0</span></button><button id="btnClearChat" class="btn ghost" style="color:var(--danger);">清除聊天</button></div></div>
+          <div class="panel-grid ai-grid">
+            <article class="panel chat-panel-full">
+              <div class="panel-header"><h3>消防知识库对话</h3></div>
+              <div id="chatLog" class="chat-log">
+                <div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>
+              </div>
+              <div class="chat-input-row"><textarea id="chatInput" placeholder="输入您的问题，例如：发生火灾如何逃生？" rows="3"></textarea><button id="btnSendQuestion" class="btn btn-main">发送消息</button></div>
+            </article>
+            <article class="panel">
+              <div class="panel-header"><h3>当前大模型状态</h3></div>
+              <div id="aiJudgement" class="judgement"><div class="model-empty-state"><strong>暂无活跃告警</strong><p>请等待模型响应事件</p></div></div>
+              <div class="model-stats"><div class="stat-row"><span class="stat-label">模型引擎</span><span class="stat-value" id="modelEngine">DeepSeek-V4</span></div><div class="stat-row"><span class="stat-label">响应延迟</span><span class="stat-value" id="modelLatency">— ms</span></div><div class="stat-row"><span class="stat-label">会话轮次</span><span class="stat-value" id="modelRounds">0</span></div><div class="stat-row"><span class="stat-label">Token 用量</span><span class="stat-value" id="modelTokens">—</span></div></div>
+              <button id="btnBroadcast" class="btn btn-main danger-wide">📢 下发广播指令</button>
+              <p style="text-align:center;font-size:11px;color:var(--muted);margin:6px 0 0;">将 AI 分析结论转化为设备广播动作</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="view-alarms" class="view">
+          <div class="module-heading"><div><h3>告警日志</h3><p>支持筛选、分页和处置操作</p></div><button id="btnRefreshAlarms" class="btn">刷新</button></div>
+          <div class="panel">
+            <div class="panel-header">
+              <h3>告警日志</h3>
+              <div class="toolbar">
+                <select id="alarmStatusFilter"><option value="">全部状态</option><option value="PENDING">待处理</option><option value="CONFIRMING">确认中</option><option value="CONFIRMED">已确认</option><option value="RESOLVED">已处置</option><option value="ARCHIVED">已归档</option><option value="CLOSED">已关闭</option></select>
+                <button id="btnLoadAlarms" class="btn btn-main">查询</button>
+              </div>
+            </div>
+            <div class="batch-bar"><span id="alarmBatchHint" class="batch-hint">已选择 0 条告警</span><div class="batch-actions"><button id="btnSelectAllAlarms" class="btn">全选</button><button id="btnClearAlarms" class="btn">取消选择</button><button id="btnBatchConfirmAlarms" class="btn btn-main">批量确认</button><button id="btnBatchResolveAlarms" class="btn btn-main">批量处置</button><button id="btnBatchArchiveAlarms" class="btn">批量归档</button><button id="btnBatchCloseAlarms" class="btn danger">批量关闭</button></div></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="alarmSelectAll" /></th><th>时间</th><th>告警类型</th><th>等级</th><th>状态</th><th>设备</th><th>楼栋</th><th>处置操作</th><th>详情</th></tr></thead><tbody id="alarmTableBody"></tbody></table></div>
+            <div id="alarmPagination" class="pagination-bar"></div>
+          </div>
+        </section>
+
+        <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle">
+          <div class="modal-mask" data-modal-close="true"></div>
+          <div class="modal-panel">
+            <div class="modal-header"><h3 id="detailModalTitle">详情</h3><button class="btn" type="button" data-modal-close="true">关闭</button></div>
+            <div id="detailModalBody" class="modal-body"></div>
+          </div>
+        </div>
+
+        <footer class="dashboard-footer"><span>系统版本: v2.0</span><span>部署环境: FE2-PC</span><span id="footerSyncTime">最后同步: --</span><span>© 2026 智慧烟感预警系统</span></footer>
+        <!-- ===== 调试日志抽屉 ===== -->
+        <div class="log-drawer-mask" id="logDrawerMask"></div>
+        <div class="log-drawer" id="logDrawer">
+          <div class="log-drawer-header"><h3>📋 请求日志 / 调试面板</h3><button class="btn ghost" id="btnCloseDrawer" style="font-size:18px;">✕</button></div>
+          <div class="log-drawer-body" id="logDrawerBody"><div class="empty-state"><strong>暂无请求日志</strong><p>发送消息后将在此显示请求详情</p></div></div>
+        </div>
+      </main>
+    </div>
+    <script src="./dashboard-enhanced.js"></script>
+  </body>
+</html>
