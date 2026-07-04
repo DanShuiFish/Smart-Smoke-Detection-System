@@ -1,6 +1,7 @@
 package com.smartsmoke.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.smartsmoke.entity.DeviceStatusStatsVO;
 import com.smartsmoke.entity.SmokeDevice;
 
 public interface DeviceService extends IService<SmokeDevice> {
@@ -10,4 +11,5 @@ public interface DeviceService extends IService<SmokeDevice> {
      * @param deviceCode 设备编号，如 "SDS-001"
      */
     void updateOffline(String deviceCode);
+    DeviceStatusStatsVO getStats();
 }
