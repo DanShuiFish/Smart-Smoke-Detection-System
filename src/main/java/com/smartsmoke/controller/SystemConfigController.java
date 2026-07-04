@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/configs")
+@RequestMapping("/api/v1/configs")
 @RequiredArgsConstructor
 public class SystemConfigController {
 

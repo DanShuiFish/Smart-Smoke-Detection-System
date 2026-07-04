@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.Map;
 @RestController
-@RequestMapping("/api/alarms")
+@RequestMapping("/api/v1/alarms")
 @RequiredArgsConstructor
 public class AlarmController {
     private final AlarmRecordService alarmRecordService;

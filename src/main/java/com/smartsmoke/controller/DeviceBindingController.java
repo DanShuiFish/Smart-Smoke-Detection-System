@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/bindings")
+@RequestMapping("/api/v1/bindings")
 @RequiredArgsConstructor
 public class DeviceBindingController {
 

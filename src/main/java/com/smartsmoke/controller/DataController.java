@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.List;
 @RestController
-@RequestMapping("/api/data")
+@RequestMapping("/api/v1/data")
 @RequiredArgsConstructor
 public class DataController {
     private final SensorDataService sensorDataService;
