@@ -38,10 +38,10 @@ INSERT IGNORE INTO `sys_user` (username, password, real_name, role, status, rema
 
 -- Sample: device bindings
 INSERT IGNORE INTO `device_binding` (`device_id`,`user_id`,`bind_type`,`status`) VALUES
-(1,1,'''OWNER''','''BOUND'''),
-(2,3,'''ADMIN''','''BOUND'''),
-(3,1,'''OWNER''','''BOUND'''),
-(5,2,'''VIEWER''','''BOUND''');
+(1,1,'OWNER','BOUND'),
+(2,3,'ADMIN','BOUND'),
+(3,1,'OWNER','BOUND'),
+(5,2,'VIEWER','BOUND');
 
 
 -- 历史样本数据已移除，仅保留脚本实时产生的数据
