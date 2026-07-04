@@ -17,11 +17,5 @@ public class SaTokenConfig implements WebMvcConfigurer {
 //                    .notMatch("/api/auth/login") // 排除登录接口
 //                    .check(r -> StpUtil.checkLogin()); // 校验是否登录
 //        })).addPathPatterns("/**");
-        registry.addInterceptor(new SaInterceptor(handle -> {
-            SaRouter.match("/api/**")
-                    .notMatch("/api/auth/login")
-                    .notMatch("/api/auth/register")
-                    .check(r -> StpUtil.checkLogin());
-        })).addPathPatterns("/**");
     }
 }
