@@ -502,56 +502,165 @@ async function handleAlarmAction(action, id) {
   else if (action === "close") await apiRequest("/alarms/" + id + "/close", { method: "PUT", body: JSON.stringify({ remark: "由前端关闭" }) });
 }
 
-function appendChat(role, text) {
+// ===== AI 聊天（增强版） =====
+let aiRound = 0;
+let lastAiAnswer = "";
+function nowTimeStr() { return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }); }
+
+function appendChat(role, text, isError) {
   const log = el("chatLog");
   if (!log) return;
+  // 隐藏空状态
+  const empty = el("chatEmpty");
+  if (empty) empty.style.display = "none";
+
+  const row = document.createElement("div");
+  row.className = "msg-row " + (role === "user" ? "user" : "ai");
+
+  const avatar = document.createElement("div");
+  avatar.className = "msg-avatar " + (role === "user" ? "user-av" : "ai-av");
+  avatar.textContent = role === "user" ? "我" : "AI";
+
+  const body = document.createElement("div");
+  body.className = "msg-body";
+
+  const meta = document.createElement("div");
+  meta.className = "msg-meta";
+  const sender = document.createElement("span");
+  sender.className = "msg-sender";
+  sender.textContent = role === "user" ? "我" : "AI 助手";
+  const time = document.createElement("span");
+  time.className = "msg-time";
+  time.textContent = nowTimeStr();
+  meta.appendChild(sender);
+  meta.appendChild(time);
+
   const bubble = document.createElement("div");
-  bubble.className = "bubble " + (role === "user" ? "user" : "ai");
+  bubble.className = "msg-bubble";
+  if (isError) { bubble.style.color = "#dc2626"; bubble.style.borderColor = "rgba(220,38,38,0.4)"; bubble.style.background = "#fef2f2"; }
   bubble.textContent = text;
-  log.appendChild(bubble);
+
+  body.appendChild(meta);
+  body.appendChild(bubble);
+  row.appendChild(avatar);
+  row.appendChild(body);
+  log.appendChild(row);
   log.scrollTop = log.scrollHeight;
 }
+
 function renderAiJudgement() {
   const target = el("aiJudgement");
   if (!target) return;
-  const active = getActiveAlarm();
-  if (!active) { target.textContent = "暂无活跃告警，请等待新的烟感事件。"; return; }
-  target.textContent = "当前存在告警：" + safeText(active.alarmType, "告警") + "，等级 " + safeText(active.alarmLevel, "--") + "，状态 " + safeText(active.alarmStatus, "--") + "，设备 " + safeText(active.deviceId, "--") + "，位置 " + safeText(active.locationBuilding || active.building, "未知楼栋") + "。建议先确认现场，再下发广播。";
+  target.innerHTML = '<div class="model-empty-state"><strong>暂无活跃告警</strong><p>请等待模型响应事件</p></div>';
 }
+
 async function sendQuestion() {
   const input = el("chatInput");
   if (!input) return;
   const question = input.value.trim();
   if (!question) return;
   if (!state.aiSessionId) state.aiSessionId = buildSessionId();
-  const active = getActiveAlarm();
   appendChat("user", question);
   input.value = "";
+  const startTime = Date.now();
+
   try {
-    const response = await apiRequest("/conversations", { method: "POST", body: JSON.stringify({ sessionId: state.aiSessionId, alarmId: active && active.id ? active.id : undefined, question }) });
+    const response = await apiRequest("/conversations", { method: "POST", body: JSON.stringify({ sessionId: state.aiSessionId, question }) });
     const answer = safeText(response && (response.answer || response.content || response.reply), "暂无回复");
     appendChat("ai", answer);
-    const judgement = el("aiJudgement");
-    if (judgement) judgement.textContent = answer;
+    lastAiAnswer = answer;
+    aiRound++;
+    // 更新右侧模型状态
+    const latency = Date.now() - startTime;
+    const latEl = el("modelLatency"); if (latEl) latEl.textContent = latency + " ms";
+    const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = aiRound;
+    const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = answer.length ? Math.floor(answer.length * 1.5) : "—";
+    // 启用广播按钮
+    const btn = el("btnBroadcast"); if (btn) btn.disabled = false;
+    addLog("success", "/api/v1/conversations", JSON.stringify({ question: question, answer: answer.substring(0, 100) + "..." }), 200, latency);
   } catch (error) {
-    appendChat("ai", "调用失败: " + error.message);
+    appendChat("ai", "大模型回复异常：" + error.message, true);
+    const latEl = el("modelLatency"); if (latEl) latEl.textContent = "— ms";
+    addLog("error", "/api/v1/conversations", "ERR: " + error.message, 0, Date.now() - startTime);
   }
 }
+
 async function sendBroadcast() {
-  const active = getActiveAlarm();
-  const selectedDevice = (state.devicesPage.records || []).find((item) => String(item.id) === String(state.selectedDeviceId));
-  if (!active || !active.id) { showGlobalAlert("当前没有可广播的活跃告警"); return; }
-  const deviceId = active.deviceId || (selectedDevice && selectedDevice.id);
-  if (!deviceId) { showGlobalAlert("请先选择设备或等待告警关联设备加载完成"); return; }
-  const area = safeText(active.locationBuilding || active.building || (selectedDevice && (selectedDevice.locationBuilding || selectedDevice.building)), "当前区域");
+  if (!lastAiAnswer) { showGlobalAlert("暂无 AI 分析结论可下发，请先进行对话"); return; }
+  if (!confirm("确认将 AI 分析结论作为广播指令下发到所有设备？\n\n分析摘要：" + lastAiAnswer.substring(0, 100) + "...")) return;
   try {
-    await apiRequest("/broadcasts", { method: "POST", body: JSON.stringify({ alarmId: active.id, deviceId, broadcastArea: area, broadcastContent: "【紧急疏散】检测到告警，请相关区域人员立即按照消防预案有序撤离。", broadcastType: "EMERGENCY", triggerMode: "MANUAL" }) });
+    await apiRequest("/broadcasts", { method: "POST", body: JSON.stringify({ broadcastContent: lastAiAnswer, broadcastType: "EMERGENCY", triggerMode: "AI_MANUAL" }) });
     showGlobalAlert("广播指令已下发");
-    await loadScreenData();
+    addLog("success", "/api/v1/broadcasts", "广播指令已下发", 200, 0);
   } catch (error) {
     showGlobalAlert("广播失败: " + error.message);
+    addLog("error", "/api/v1/broadcasts", "广播失败: " + error.message, 0, 0);
   }
 }
+
+function clearChat() {
+  if (!confirm("确定要清除所有聊天记录吗？")) return;
+  const log = el("chatLog");
+  if (log) log.innerHTML = '<div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>';
+  bindQuickQs();
+  lastAiAnswer = "";
+  aiRound = 0;
+  state.aiSessionId = buildSessionId();
+  const latEl = el("modelLatency"); if (latEl) latEl.textContent = "— ms";
+  const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = "0";
+  const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = "—";
+  renderAiJudgement();
+  const btn = el("btnBroadcast"); if (btn) btn.disabled = true;
+}
+
+function bindQuickQs() {
+  document.querySelectorAll(".quick-qs span[data-q]").forEach(function(sp) {
+    sp.addEventListener("click", function() {
+      const input = el("chatInput"); if (input) input.value = this.dataset.q;
+      sendQuestion();
+    });
+  });
+}
+
+// ===== 调试日志 =====
+var _requestLogs = [];
+function addLog(type, url, detail, status, duration) {
+  _requestLogs.unshift({ type: type, url: url, detail: String(detail || ""), status: status, duration: duration, time: new Date().toLocaleTimeString("zh-CN") });
+  if (_requestLogs.length > 50) _requestLogs.length = 50;
+  var badge = el("logBadge"); if (badge) { badge.textContent = _requestLogs.length; badge.classList.toggle("hidden", _requestLogs.length === 0); }
+}
+function openLogDrawer() { el("logDrawerMask").classList.add("open"); el("logDrawer").classList.add("open"); renderLogDrawer(); }
+function closeLogDrawer() { el("logDrawerMask").classList.remove("open"); el("logDrawer").classList.remove("open"); }
+function renderLogDrawer() {
+  var body = el("logDrawerBody");
+  if (!body) return;
+  if (!_requestLogs.length) { body.innerHTML = '<div class="empty-state"><strong>暂无请求日志</strong><p>发送消息后将在此显示请求详情</p></div>'; return; }
+  body.innerHTML = _requestLogs.map(function(l) {
+    var tagCls = l.type === "error" ? "error" : (l.type === "success" ? "success" : "info");
+    var tagText = l.type === "error" ? "ERROR" : (l.type === "success" ? "OK" : l.type);
+    return '<div class="log-item ' + l.type + '">' +
+      '<div class="log-item-header"><span class="log-tag ' + tagCls + '">' + tagText + '</span><span class="log-url-text">' + safeText(l.url) + '</span><span class="log-time-text">' + safeText(l.time) + '</span></div>' +
+      (l.detail ? '<div class="log-detail-box"><pre>' + safeText(l.detail) + '</pre></div>' : '') +
+      '<div class="log-meta-row">' + (l.status ? '<span>状态码: ' + l.status + '</span>' : '') + (l.duration ? '<span>耗时: ' + l.duration + 'ms</span>' : '') + '</div></div>';
+  }).join("");
+}
+
+// Fetch 拦截器
+var _origFetch = window.fetch;
+window.fetch = function(url, opts) {
+  var start = Date.now();
+  var urlStr = typeof url === "string" ? url : (url.url || "");
+  return _origFetch.apply(this, arguments).then(function(res) {
+    var dur = Date.now() - start;
+    if (urlStr.indexOf("/api/") >= 0 && urlStr.indexOf("size=1") < 0 && urlStr.indexOf("page=") < 0) {
+      addLog(res.ok ? "success" : "error", urlStr, "status: " + res.status + " " + res.statusText, res.status, dur);
+    }
+    return res;
+  }).catch(function(err) {
+    addLog("error", urlStr, "请求失败: " + err.message, 0, Date.now() - start);
+    throw err;
+  });
+};
 function showGlobalAlert(text) {
   const node = el("globalAlert");
   if (!node) return;
@@ -699,18 +808,33 @@ function bindEvents() {
   if (btnBatchCloseAlarms) btnBatchCloseAlarms.addEventListener("click", () => batchHandleAlarms("close"));
   if (deviceSelectAll) deviceSelectAll.addEventListener("change", () => { state.selectedDeviceIds = deviceSelectAll.checked ? (state.devicesPage.records || []).map((item) => String(item.id)) : []; renderDevicesTable(); });
   if (alarmSelectAll) alarmSelectAll.addEventListener("change", () => { state.selectedAlarmIds = alarmSelectAll.checked ? (state.alarmsPage.records || []).map((item) => String(item.id)) : []; renderAlarmTable(); });
-  if (chatInput) chatInput.addEventListener("keydown", (event) => { if (event.key === "Enter") sendQuestion(); });
+  if (chatInput) chatInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendQuestion(); } });
   if (screenDeviceSelect) screenDeviceSelect.addEventListener("change", () => { state.selectedDeviceId = screenDeviceSelect.value; });
+  // 新 AI 视图按钮
+  const btnClearChat = el("btnClearChat"); if (btnClearChat) btnClearChat.addEventListener("click", clearChat);
+  const btnOpenLogDrawer = el("btnOpenLogDrawer"); if (btnOpenLogDrawer) btnOpenLogDrawer.addEventListener("click", openLogDrawer);
+  const btnCloseDrawer = el("btnCloseDrawer"); if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeLogDrawer);
+  const logDrawerMask = el("logDrawerMask"); if (logDrawerMask) logDrawerMask.addEventListener("click", closeLogDrawer);
+  bindQuickQs();
   document.addEventListener("click", (event) => {
     const modal = el("detailModal");
     if (modal && !modal.classList.contains("hidden") && event.target === modal.querySelector(".modal-mask")) closeDetailModal();
   });
 }
 
+function initSidebarHover() {
+  const sidebar = document.querySelector(".sidebar");
+  const layout = document.querySelector(".app-layout");
+  if (!sidebar || !layout) return;
+  sidebar.addEventListener("mouseenter", () => layout.classList.add("sidebar-expanded"));
+  sidebar.addEventListener("mouseleave", () => layout.classList.remove("sidebar-expanded"));
+}
+
 async function bootstrap() {
   state.aiSessionId = buildSessionId();
   initMenus();
   bindEvents();
+  initSidebarHover();
   setClock();
   setInterval(setClock, 1000);
   connectWebSocket();

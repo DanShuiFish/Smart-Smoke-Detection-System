@@ -114,10 +114,22 @@
         </section>
 
         <section id="view-ai" class="view">
-          <div class="module-heading"><div><h3>AI 智能问答</h3><p>火情研判、消防预案和广播指令联动</p></div><button id="btnRefreshAi" class="btn">刷新</button></div>
+          <div class="module-heading"><div><h3>AI 智能问答</h3><p>灾情研判，辅助决策及广播指令联动</p></div><div class="toolbar"><button id="btnOpenLogDrawer" class="btn ghost">📋 调试日志<span class="log-badge-count hidden" id="logBadge">0</span></button><button id="btnClearChat" class="btn ghost" style="color:var(--danger);">清除聊天</button></div></div>
           <div class="panel-grid ai-grid">
-            <article class="panel"><div class="panel-header"><h3>消防知识库对话</h3></div><div id="chatLog" class="chat-log"></div><div class="chat-input-row"><input id="chatInput" type="text" placeholder="输入问题，例如：当前火警处置流程" /><button id="btnSendQuestion" class="btn">发送</button></div></article>
-            <article class="panel"><div class="panel-header"><h3>当前火情研判</h3></div><div id="aiJudgement" class="judgement">暂无活跃告警</div><button id="btnBroadcast" class="btn btn-main danger-wide">下发广播指令</button></article>
+            <article class="panel chat-panel-full">
+              <div class="panel-header"><h3>消防知识库对话</h3></div>
+              <div id="chatLog" class="chat-log">
+                <div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>
+              </div>
+              <div class="chat-input-row"><textarea id="chatInput" placeholder="输入您的问题，例如：发生火灾如何逃生？" rows="3"></textarea><button id="btnSendQuestion" class="btn btn-main">发送消息</button></div>
+            </article>
+            <article class="panel">
+              <div class="panel-header"><h3>当前大模型状态</h3></div>
+              <div id="aiJudgement" class="judgement"><div class="model-empty-state"><strong>暂无活跃告警</strong><p>请等待模型响应事件</p></div></div>
+              <div class="model-stats"><div class="stat-row"><span class="stat-label">模型引擎</span><span class="stat-value" id="modelEngine">DeepSeek-V4</span></div><div class="stat-row"><span class="stat-label">响应延迟</span><span class="stat-value" id="modelLatency">— ms</span></div><div class="stat-row"><span class="stat-label">会话轮次</span><span class="stat-value" id="modelRounds">0</span></div><div class="stat-row"><span class="stat-label">Token 用量</span><span class="stat-value" id="modelTokens">—</span></div></div>
+              <button id="btnBroadcast" class="btn btn-main danger-wide">📢 下发广播指令</button>
+              <p style="text-align:center;font-size:11px;color:var(--muted);margin:6px 0 0;">将 AI 分析结论转化为设备广播动作</p>
+            </article>
           </div>
         </section>
 
@@ -146,6 +158,12 @@
         </div>
 
         <footer class="dashboard-footer"><span>系统版本: v2.0</span><span>部署环境: FE2-PC</span><span id="footerSyncTime">最后同步: --</span><span>© 2026 智慧烟感预警系统</span></footer>
+        <!-- ===== 调试日志抽屉 ===== -->
+        <div class="log-drawer-mask" id="logDrawerMask"></div>
+        <div class="log-drawer" id="logDrawer">
+          <div class="log-drawer-header"><h3>📋 请求日志 / 调试面板</h3><button class="btn ghost" id="btnCloseDrawer" style="font-size:18px;">✕</button></div>
+          <div class="log-drawer-body" id="logDrawerBody"><div class="empty-state"><strong>暂无请求日志</strong><p>发送消息后将在此显示请求详情</p></div></div>
+        </div>
       </main>
     </div>
     <script src="./dashboard-enhanced.js"></script>
