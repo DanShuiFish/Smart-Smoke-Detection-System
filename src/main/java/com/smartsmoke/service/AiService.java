@@ -9,4 +9,11 @@ public interface AiService {
      */
     boolean verifyFireVision(String imageUrl);
 
+    /**
+     * 智能问答接口（MaxKB RAG）
+     * @param question  用户提问
+     * @param sessionId 对话 sessionId（前端生成，后端用于映射 chat_id 实现多轮对话）
+     * @return AI 回答文本
+     */
+    String chat(String question, String sessionId);
 }
