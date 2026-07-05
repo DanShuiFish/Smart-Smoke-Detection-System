@@ -14,7 +14,7 @@ import java.time.format.DateTimeFormatter;
 @RestController
 @RequestMapping("/api/v1/data")
 @RequiredArgsConstructor
-public class SensorDataController {
+public class DataController {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private final SensorDataService sensorDataService;
