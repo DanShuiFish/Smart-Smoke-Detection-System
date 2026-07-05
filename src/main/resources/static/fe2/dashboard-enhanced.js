@@ -9,6 +9,10 @@ const state = {
   analysis: { alarmTrend: [], alarmSample: [], deviceStats: [] },
   devicesPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   alarmsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
+  // AI 对话
+  conversationSessions: [],    // 所有会话摘要列表
+  currentSessionId: "",        // 当前活跃会话
+  taskbarOpen: false,
 };
 
 const charts = {
@@ -23,6 +27,7 @@ const charts = {
   analysisDeviceStatus: null,
   analysisBuilding: null,
 };
+
 
 function el(id) { return document.getElementById(id); }
 function safeText(value, fallback = "--") { return value === null || value === undefined || value === "" ? fallback : String(value); }
@@ -135,11 +140,19 @@ function switchView(view) {
   const pair = map[view] || map.screen;
   const title = el("viewTitle");
   const subtitle = el("viewSubTitle");
-  const banner = el("bannerTitle");
   if (title) title.textContent = pair[0];
-  if (subtitle) subtitle.textContent = pair[1];
-  if (banner) banner.textContent = pair[0];
+  if (subtitle) subtitle.textContent = "· " + pair[1];
+
+  // AI 页面精简顶栏，全屏对话
+  const workspace = document.querySelector(".workspace");
+  if (workspace) { workspace.classList.toggle("ai-mode", view === "ai"); }
+
   setTimeout(resizeVisibleCharts, 80);
+  // 切换到对应页面时自动加载最新数据
+  if (view === "ai") { loadConversationSessions(); }
+  if (view === "analysis") { loadAnalysisData(); }
+  if (view === "devices") { loadDevices(1); }
+  if (view === "alarms") { loadAlarmRows(1); }
 }
 function initMenus() {
   document.querySelectorAll(".nav-btn").forEach((btn) => btn.addEventListener("click", () => switchView(btn.dataset.view)));
@@ -502,7 +515,9 @@ async function handleAlarmAction(action, id) {
   else if (action === "close") await apiRequest("/alarms/" + id + "/close", { method: "PUT", body: JSON.stringify({ remark: "由前端关闭" }) });
 }
 
-// ===== AI 聊天（增强版） =====
+// ================================================================
+//  AI 对话 — Gemini 风格（会话历史 + 大矩形聊天 + 右侧任务栏）
+// ================================================================
 let aiRound = 0;
 let lastAiAnswer = "";
 function nowTimeStr() { return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }); }
@@ -510,7 +525,6 @@ function nowTimeStr() { return new Date().toLocaleTimeString("zh-CN", { hour: "2
 function appendChat(role, text, isError) {
   const log = el("chatLog");
   if (!log) return;
-  // 隐藏空状态
   const empty = el("chatEmpty");
   if (empty) empty.style.display = "none";
 
@@ -554,12 +568,168 @@ function renderAiJudgement() {
   target.innerHTML = '<div class="model-empty-state"><strong>暂无活跃告警</strong><p>请等待模型响应事件</p></div>';
 }
 
+// ===== 右侧任务栏 =====
+function openTaskbar() {
+  const taskbar = el("rightTaskbar");
+  if (taskbar) taskbar.classList.add("open");
+  state.taskbarOpen = true;
+}
+function closeTaskbar() {
+  const taskbar = el("rightTaskbar");
+  if (taskbar) taskbar.classList.remove("open");
+  state.taskbarOpen = false;
+}
+function toggleTaskbar() {
+  if (state.taskbarOpen) closeTaskbar();
+  else openTaskbar();
+}
+
+// ===== 对话历史侧栏 =====
+async function loadConversationSessions() {
+  try {
+    const data = await apiRequest("/conversations");
+    const allLogs = Array.isArray(data) ? data : [];
+    // 按 sessionId 分组
+    const sessionMap = new Map();
+    allLogs.forEach((log) => {
+      const sid = log.sessionId || "unknown";
+      if (!sessionMap.has(sid)) {
+        sessionMap.set(sid, {
+          sessionId: sid,
+          firstQuestion: log.question || "",
+          lastTime: log.createTime || "",
+          count: 0,
+        });
+      }
+      const entry = sessionMap.get(sid);
+      entry.count++;
+      if (!entry.firstQuestion && log.question) entry.firstQuestion = log.question;
+      if (log.createTime && (!entry.lastTime || log.createTime > entry.lastTime)) entry.lastTime = log.createTime;
+    });
+    state.conversationSessions = Array.from(sessionMap.values()).sort((a, b) => {
+      return (b.lastTime || "").localeCompare(a.lastTime || "");
+    });
+    renderConvList();
+  } catch (error) {
+    console.error("加载对话列表失败:", error);
+  }
+}
+
+function renderConvList() {
+  const list = el("convList");
+  if (!list) return;
+  const sessions = state.conversationSessions || [];
+  if (!sessions.length) {
+    list.innerHTML = '<div class="conv-empty">暂无对话记录<br>发送第一条消息开始</div>';
+    return;
+  }
+  list.innerHTML = sessions.map((s) => {
+    const active = s.sessionId === state.currentSessionId ? " active" : "";
+    // 精炼标题：优先用首条问题（截取18字），否则用创建时间
+    let title;
+    if (s.firstQuestion) {
+      const q = s.firstQuestion.replace(/\s+/g, " ").trim();
+      title = q.length > 18 ? q.substring(0, 18) + "…" : q;
+    } else if (s.lastTime) {
+      title = s.lastTime.substring(5, 16).replace("T", " "); // "MM-DD HH:mm"
+    } else {
+      title = "新对话";
+    }
+    const time = s.lastTime ? s.lastTime.substring(0, 16).replace("T", " ") : "";
+    return '<div class="conv-item' + active + '" data-sid="' + escapeHtml(s.sessionId) + '">'
+      + '<div class="conv-item-title">' + escapeHtml(title) + '</div>'
+      + '<div class="conv-item-time">' + escapeHtml(time) + (s.count > 0 ? ' · ' + s.count + ' 条' : '') + '</div>'
+      + '</div>';
+  }).join("");
+
+  // 绑定点击事件
+  list.querySelectorAll(".conv-item").forEach((item) => {
+    item.addEventListener("click", () => switchSession(item.dataset.sid));
+  });
+}
+
+async function switchSession(sessionId) {
+  state.currentSessionId = sessionId;
+  state.aiSessionId = sessionId;
+  // 重置状态
+  lastAiAnswer = "";
+  aiRound = 0;
+
+  // 清空当前聊天区
+  const log = el("chatLog");
+  if (log) log.innerHTML = "";
+  const empty = el("chatEmpty");
+  if (empty) empty.style.display = "none";
+
+  // 从 API 加载该会话的对话历史
+  try {
+    const data = await apiRequest("/conversations?sessionId=" + encodeURIComponent(sessionId));
+    const logs = Array.isArray(data) ? data : [];
+    logs.reverse(); // API 返回降序，反转为正序
+    if (logs.length === 0) {
+      // 空会话显示欢迎界面
+      if (log) {
+        log.innerHTML = '<div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>';
+      }
+      bindQuickQs();
+      lastAiAnswer = "";
+      aiRound = 0;
+    } else {
+      logs.forEach((l) => {
+        if (l.question) appendChat("user", l.question);
+        if (l.answer) appendChat("ai", l.answer);
+      });
+      lastAiAnswer = logs[logs.length - 1].answer || "";
+      aiRound = logs.length;
+    }
+  } catch (error) {
+    console.error("加载对话历史失败:", error);
+  }
+
+  renderConvList();
+  updateModelStats();
+}
+
+function newChat() {
+  state.aiSessionId = buildSessionId();
+  state.currentSessionId = state.aiSessionId;
+  lastAiAnswer = "";
+  aiRound = 0;
+
+  // 立即在侧栏加入新对话条目并高亮
+  const now = new Date().toISOString();
+  const newEntry = { sessionId: state.aiSessionId, firstQuestion: "", lastTime: now, count: 0 };
+  // 去重：如果已有同 ID 的空条目则替换
+  const existingIdx = state.conversationSessions.findIndex(function(s) { return s.sessionId === state.aiSessionId; });
+  if (existingIdx >= 0) state.conversationSessions.splice(existingIdx, 1);
+  state.conversationSessions.unshift(newEntry);
+  if (state.conversationSessions.length > 50) state.conversationSessions.length = 50;
+  renderConvList();
+
+  const log = el("chatLog");
+  if (log) {
+    log.innerHTML = '<div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>';
+  }
+  bindQuickQs();
+  updateModelStats();
+  renderAiJudgement();
+  const btn = el("btnBroadcast"); if (btn) btn.disabled = true;
+}
+
+function updateModelStats() {
+  const latEl = el("modelLatency"); if (latEl) latEl.textContent = "— ms";
+  const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = String(aiRound);
+  const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = "—";
+}
+
 async function sendQuestion() {
   const input = el("chatInput");
   if (!input) return;
   const question = input.value.trim();
   if (!question) return;
-  if (!state.aiSessionId) state.aiSessionId = buildSessionId();
+  if (!state.aiSessionId) { state.aiSessionId = buildSessionId(); }
+  // 保持 currentSessionId 与 aiSessionId 同步
+  state.currentSessionId = state.aiSessionId;
   appendChat("user", question);
   input.value = "";
   const startTime = Date.now();
@@ -570,14 +740,22 @@ async function sendQuestion() {
     appendChat("ai", answer);
     lastAiAnswer = answer;
     aiRound++;
-    // 更新右侧模型状态
     const latency = Date.now() - startTime;
     const latEl = el("modelLatency"); if (latEl) latEl.textContent = latency + " ms";
     const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = aiRound;
     const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = answer.length ? Math.floor(answer.length * 1.5) : "—";
-    // 启用广播按钮
     const btn = el("btnBroadcast"); if (btn) btn.disabled = false;
     addLog("success", "/api/v1/conversations", JSON.stringify({ question: question, answer: answer.substring(0, 100) + "..." }), 200, latency);
+    // 即时更新侧栏标题（不等 API 返回）
+    const cur = state.conversationSessions.find(function(s) { return s.sessionId === state.aiSessionId; });
+    if (cur) {
+      if (!cur.firstQuestion) cur.firstQuestion = question;
+      cur.lastTime = new Date().toISOString();
+      cur.count = (cur.count || 0) + 1;
+      renderConvList();
+    }
+    // 异步刷新完整列表确保与数据库一致
+    loadConversationSessions();
   } catch (error) {
     appendChat("ai", "大模型回复异常：" + error.message, true);
     const latEl = el("modelLatency"); if (latEl) latEl.textContent = "— ms";
@@ -601,16 +779,18 @@ async function sendBroadcast() {
 function clearChat() {
   if (!confirm("确定要清除所有聊天记录吗？")) return;
   const log = el("chatLog");
-  if (log) log.innerHTML = '<div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>';
+  if (log) {
+    log.innerHTML = '<div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>';
+  }
   bindQuickQs();
   lastAiAnswer = "";
   aiRound = 0;
   state.aiSessionId = buildSessionId();
-  const latEl = el("modelLatency"); if (latEl) latEl.textContent = "— ms";
-  const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = "0";
-  const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = "—";
+  state.currentSessionId = "";
+  updateModelStats();
   renderAiJudgement();
   const btn = el("btnBroadcast"); if (btn) btn.disabled = true;
+  renderConvList();
 }
 
 function bindQuickQs() {
@@ -628,6 +808,7 @@ function addLog(type, url, detail, status, duration) {
   _requestLogs.unshift({ type: type, url: url, detail: String(detail || ""), status: status, duration: duration, time: new Date().toLocaleTimeString("zh-CN") });
   if (_requestLogs.length > 50) _requestLogs.length = 50;
   var badge = el("logBadge"); if (badge) { badge.textContent = _requestLogs.length; badge.classList.toggle("hidden", _requestLogs.length === 0); }
+  var badge2 = el("logBadge2"); if (badge2) { badge2.textContent = _requestLogs.length; badge2.classList.toggle("hidden", _requestLogs.length === 0); }
 }
 function openLogDrawer() { el("logDrawerMask").classList.add("open"); el("logDrawer").classList.add("open"); renderLogDrawer(); }
 function closeLogDrawer() { el("logDrawerMask").classList.remove("open"); el("logDrawer").classList.remove("open"); }
@@ -768,7 +949,6 @@ function bindEvents() {
   const screenRefresh = el("btnRefreshScreen");
   const analysisRefresh = el("btnRefreshAnalysis");
   const devicesRefresh = el("btnRefreshDevices");
-  const aiRefresh = el("btnRefreshAi");
   const alarmsRefresh = el("btnRefreshAlarms");
   const btnSearchDevices = el("btnSearchDevices");
   const btnLoadAlarms = el("btnLoadAlarms");
@@ -791,7 +971,6 @@ function bindEvents() {
   if (screenRefresh) screenRefresh.addEventListener("click", async () => { await loadScreenData(); await loadDevices(); });
   if (analysisRefresh) analysisRefresh.addEventListener("click", loadAnalysisData);
   if (devicesRefresh) devicesRefresh.addEventListener("click", () => loadDevices(1));
-  if (aiRefresh) aiRefresh.addEventListener("click", async () => { await loadHealthStatus(); await loadScreenData(); });
   if (alarmsRefresh) alarmsRefresh.addEventListener("click", () => loadAlarmRows(1));
   if (btnSearchDevices) btnSearchDevices.addEventListener("click", () => loadDevices(1));
   if (btnLoadAlarms) btnLoadAlarms.addEventListener("click", () => loadAlarmRows(1));
@@ -809,12 +988,24 @@ function bindEvents() {
   if (deviceSelectAll) deviceSelectAll.addEventListener("change", () => { state.selectedDeviceIds = deviceSelectAll.checked ? (state.devicesPage.records || []).map((item) => String(item.id)) : []; renderDevicesTable(); });
   if (alarmSelectAll) alarmSelectAll.addEventListener("change", () => { state.selectedAlarmIds = alarmSelectAll.checked ? (state.alarmsPage.records || []).map((item) => String(item.id)) : []; renderAlarmTable(); });
   if (chatInput) chatInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendQuestion(); } });
-  if (screenDeviceSelect) screenDeviceSelect.addEventListener("change", () => { state.selectedDeviceId = screenDeviceSelect.value; });
-  // 新 AI 视图按钮
-  const btnClearChat = el("btnClearChat"); if (btnClearChat) btnClearChat.addEventListener("click", clearChat);
+  if (screenDeviceSelect) screenDeviceSelect.addEventListener("change", async () => {
+    state.selectedDeviceId = screenDeviceSelect.value;
+    // 选择设备后刷新大屏数据（趋势图聚焦该设备）
+    await loadScreenData();
+    resizeVisibleCharts();
+  });
+
+  // AI 页面按钮
+  const btnNewChat = el("btnNewChat"); if (btnNewChat) btnNewChat.addEventListener("click", newChat);
   const btnOpenLogDrawer = el("btnOpenLogDrawer"); if (btnOpenLogDrawer) btnOpenLogDrawer.addEventListener("click", openLogDrawer);
   const btnCloseDrawer = el("btnCloseDrawer"); if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeLogDrawer);
   const logDrawerMask = el("logDrawerMask"); if (logDrawerMask) logDrawerMask.addEventListener("click", closeLogDrawer);
+
+  // 右侧任务栏
+  const taskbarTrigger = el("rightTaskbarTrigger"); if (taskbarTrigger) taskbarTrigger.addEventListener("click", toggleTaskbar);
+  const btnCloseTaskbar = el("btnCloseTaskbar"); if (btnCloseTaskbar) btnCloseTaskbar.addEventListener("click", closeTaskbar);
+  const btnTaskbarLog = el("btnTaskbarLog"); if (btnTaskbarLog) btnTaskbarLog.addEventListener("click", openLogDrawer);
+
   bindQuickQs();
   document.addEventListener("click", (event) => {
     const modal = el("detailModal");
@@ -830,6 +1021,7 @@ function initSidebarHover() {
   sidebar.addEventListener("mouseleave", () => layout.classList.remove("sidebar-expanded"));
 }
 
+
 async function bootstrap() {
   state.aiSessionId = buildSessionId();
   initMenus();
@@ -841,7 +1033,16 @@ async function bootstrap() {
   await loadHealthStatus();
   await Promise.all([loadDevices(1), loadScreenData(), loadAnalysisData(), loadAlarmRows(1)]);
   renderAiJudgement();
-  setInterval(async () => { await loadHealthStatus(); await loadScreenData(); }, 20000);
+  // 全页面实时数据刷新：每 10 秒更新当前视图数据
+  setInterval(async () => {
+    await loadHealthStatus();
+    await loadScreenData();
+    // 根据当前视图刷新对应数据
+    if (state.currentView === "devices") await loadDevices(state.devicesPage.page);
+    if (state.currentView === "analysis") await loadAnalysisData();
+    if (state.currentView === "alarms") await loadAlarmRows(state.alarmsPage.page);
+    if (state.currentView === "ai") await loadConversationSessions();
+  }, 10000);
 }
 
 bootstrap();

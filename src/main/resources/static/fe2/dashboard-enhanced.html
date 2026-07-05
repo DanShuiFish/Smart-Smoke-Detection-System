@@ -28,45 +28,46 @@
 
       <main class="workspace">
         <header class="topbar">
-          <div class="title-block">
-            <h2 id="viewTitle">首页 / 数据大屏</h2>
-            <p id="viewSubTitle">设备态势、实时监测、告警联动</p>
+          <div class="topbar-main">
+            <div class="topbar-left">
+              <span class="topbar-brand">🔥 智慧烟感预警系统</span>
+              <span class="topbar-sep">·</span>
+              <span id="viewTitle">数据大屏</span>
+              <span class="topbar-desc" id="viewSubTitle">设备态势、实时监测、告警联动</span>
+            </div>
+            <div class="topbar-right">
+              <span id="clock" class="clock">--:--:--</span>
+            </div>
           </div>
-          <div class="runtime-meta">
-            <span id="healthStatus" class="chip danger">服务: 检查中</span>
-            <span id="mqttStatus" class="chip warn">MQTT: --</span>
-            <span id="redisStatus" class="chip warn">Redis: --</span>
-            <span id="wsStatus" class="chip warn">WebSocket: --</span>
-            <span id="clock" class="clock">--:--:--</span>
+          <div class="topbar-status" id="topbarStatus">
+            <span id="healthStatus" class="status-chip">服务: 检查中</span>
+            <span id="mqttStatus" class="status-chip">MQTT: --</span>
+            <span id="redisStatus" class="status-chip">Redis: --</span>
+            <span id="wsStatus" class="status-chip">WebSocket: --</span>
+            <span id="activeAlarmStatus" class="status-chip">活跃告警: 0</span>
+            <span id="systemLastSync" class="status-chip">最近同步: --</span>
           </div>
         </header>
 
-        <section class="page-banner">
-          <div>
-            <p class="page-kicker">消防 PC 管理端</p>
-            <h3 id="bannerTitle">首页 / 数据大屏</h3>
-          </div>
-          <div class="banner-meta">
-            <span id="activeAlarmStatus" class="chip warn">活跃告警: 0</span>
-            <span id="systemLastSync" class="chip">最近同步: --</span>
-          </div>
-        </section>
-
         <div id="globalAlert" class="global-alert hidden"></div>
 
+        <!-- ========== 数据大屏 ========== -->
         <section id="view-screen" class="view active">
-          <div class="kpi-grid">
-            <article class="kpi-card"><h3>设备总数</h3><strong id="kpiTotalDevices">0</strong></article>
-            <article class="kpi-card"><h3>在线设备</h3><strong id="kpiOnlineDevices">0</strong></article>
-            <article class="kpi-card"><h3>今日告警</h3><strong id="kpiTodayAlarms">0</strong></article>
-            <article class="kpi-card danger"><h3>当前火警</h3><strong id="kpiPendingAlarms">0</strong></article>
-          </div>
-
-          <div class="screen-stats-grid">
-            <article class="stat-panel"><h4>烟雾浓度实时监测</h4><div class="stat-value" id="screenSmokeValue">--</div><div class="stat-unit">mg/m³</div></article>
-            <article class="stat-panel"><h4>温度实时监测</h4><div class="stat-value warm" id="screenTempValue">--</div><div class="stat-unit">℃</div></article>
-            <article class="stat-panel"><h4>设备在线率</h4><div class="stat-value ok" id="screenOnlineRate">--</div><div class="stat-unit">%</div></article>
-            <article class="stat-panel"><h4>信号强度</h4><div class="stat-value" id="screenSignalValue">--</div><div class="stat-unit">dBm</div></article>
+          <!-- 全宽统计条：KPI + 实时指标合并 -->
+          <div class="stats-bar">
+            <div class="stats-bar-group">
+              <div class="stats-bar-item kpi-item"><span class="stats-bar-label">设备总数</span><strong id="kpiTotalDevices">0</strong></div>
+              <div class="stats-bar-item kpi-item"><span class="stats-bar-label">在线设备</span><strong id="kpiOnlineDevices">0</strong></div>
+              <div class="stats-bar-item kpi-item"><span class="stats-bar-label">今日告警</span><strong id="kpiTodayAlarms">0</strong></div>
+              <div class="stats-bar-item kpi-item danger"><span class="stats-bar-label">当前火警</span><strong id="kpiPendingAlarms">0</strong></div>
+            </div>
+            <div class="stats-bar-divider"></div>
+            <div class="stats-bar-group">
+              <div class="stats-bar-item"><span class="stats-bar-label">烟雾浓度</span><strong id="screenSmokeValue">--</strong><small>mg/m³</small></div>
+              <div class="stats-bar-item"><span class="stats-bar-label">温度</span><strong id="screenTempValue" class="warm">--</strong><small>℃</small></div>
+              <div class="stats-bar-item"><span class="stats-bar-label">在线率</span><strong id="screenOnlineRate" class="ok">--</strong><small>%</small></div>
+              <div class="stats-bar-item"><span class="stats-bar-label">信号强度</span><strong id="screenSignalValue">--</strong><small>dBm</small></div>
+            </div>
           </div>
 
           <div class="panel-grid screen-grid">
@@ -79,13 +80,14 @@
             </article>
             <article class="panel"><div class="panel-header"><h3>设备在线状态</h3></div><div id="chartScreenDeviceStatus" class="chart"></div></article>
             <article class="panel"><div class="panel-header"><h3>告警类型占比</h3></div><div id="chartScreenAlarmType" class="chart"></div></article>
-            <article class="panel panel-span-2"><div class="panel-header"><h3>告警分布热力图</h3></div><div id="chartHeatmap" class="chart"></div></article>
             <article class="panel"><div class="panel-header"><h3>七日告警趋势</h3></div><div id="chartScreenTrend" class="chart"></div></article>
-            <article class="panel panel-span-2"><div class="panel-header"><h3>楼栋设备柱状分布</h3></div><div id="chartScreenBuilding" class="chart"></div></article>
+            <article class="panel"><div class="panel-header"><h3>楼栋设备柱状分布</h3></div><div id="chartScreenBuilding" class="chart"></div></article>
+            <article class="panel panel-span-2"><div class="panel-header"><h3>告警分布热力图</h3></div><div id="chartHeatmap" class="chart"></div></article>
             <article class="panel panel-span-2"><div class="panel-header"><h3>最近告警</h3><button id="btnOpenAlarms" class="btn ghost">查看全部</button></div><ul id="screenAlarmList" class="list"></ul></article>
           </div>
         </section>
 
+        <!-- ========== 设备管理 ========== -->
         <section id="view-devices" class="view">
           <div class="module-heading"><div><h3>设备管理</h3><p>筛选、查看和分页浏览设备状态</p></div><button id="btnRefreshDevices" class="btn">刷新</button></div>
           <div class="panel">
@@ -103,36 +105,94 @@
           </div>
         </section>
 
+        <!-- ========== 数据分析 ========== -->
         <section id="view-analysis" class="view">
           <div class="module-heading"><div><h3>数据分析</h3><p>趋势、占比、设备分布一屏看清</p></div><button id="btnRefreshAnalysis" class="btn">刷新</button></div>
           <div class="panel-grid analysis-grid">
             <article class="panel"><div class="panel-header"><h3>近 7 日告警趋势</h3></div><div id="chartAlarmTrend" class="chart"></div></article>
             <article class="panel"><div class="panel-header"><h3>告警类型占比</h3></div><div id="chartAlarmType" class="chart"></div></article>
-            <article class="panel panel-span-2"><div class="panel-header"><h3>设备在线状态</h3></div><div id="chartDeviceStatus" class="chart"></div></article>
-            <article class="panel panel-span-2"><div class="panel-header"><h3>楼栋设备分布</h3></div><div id="chartDeviceBuilding" class="chart"></div></article>
+            <article class="panel"><div class="panel-header"><h3>设备在线状态</h3></div><div id="chartDeviceStatus" class="chart"></div></article>
+            <article class="panel"><div class="panel-header"><h3>楼栋设备分布</h3></div><div id="chartDeviceBuilding" class="chart"></div></article>
           </div>
         </section>
 
+        <!-- ========== AI 智能问答 — Gemini 风格 ========== -->
         <section id="view-ai" class="view">
-          <div class="module-heading"><div><h3>AI 智能问答</h3><p>灾情研判，辅助决策及广播指令联动</p></div><div class="toolbar"><button id="btnOpenLogDrawer" class="btn ghost">📋 调试日志<span class="log-badge-count hidden" id="logBadge">0</span></button><button id="btnClearChat" class="btn ghost" style="color:var(--danger);">清除聊天</button></div></div>
-          <div class="panel-grid ai-grid">
-            <article class="panel chat-panel-full">
-              <div class="panel-header"><h3>消防知识库对话</h3></div>
-              <div id="chatLog" class="chat-log">
-                <div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>
+          <div class="module-heading">
+            <div><h3>AI 智能问答</h3><p>灾情研判，辅助决策及广播指令联动</p></div>
+            <div class="toolbar">
+              <button id="btnOpenLogDrawer" class="btn ghost">📋 调试日志<span class="log-badge-count hidden" id="logBadge">0</span></button>
+            </div>
+          </div>
+
+          <!-- Gemini 风格三栏布局 -->
+          <div class="ai-layout" id="aiLayout">
+            <!-- 左：对话历史侧栏 -->
+            <div class="conv-sidebar" id="convSidebar">
+              <div class="conv-sidebar-header">
+                <h4>💬 对话记录</h4>
+                <button class="btn ghost" id="btnNewChat" title="新对话">+</button>
               </div>
-              <div class="chat-input-row"><textarea id="chatInput" placeholder="输入您的问题，例如：发生火灾如何逃生？" rows="3"></textarea><button id="btnSendQuestion" class="btn btn-main">发送消息</button></div>
-            </article>
-            <article class="panel">
-              <div class="panel-header"><h3>当前大模型状态</h3></div>
-              <div id="aiJudgement" class="judgement"><div class="model-empty-state"><strong>暂无活跃告警</strong><p>请等待模型响应事件</p></div></div>
-              <div class="model-stats"><div class="stat-row"><span class="stat-label">模型引擎</span><span class="stat-value" id="modelEngine">DeepSeek-V4</span></div><div class="stat-row"><span class="stat-label">响应延迟</span><span class="stat-value" id="modelLatency">— ms</span></div><div class="stat-row"><span class="stat-label">会话轮次</span><span class="stat-value" id="modelRounds">0</span></div><div class="stat-row"><span class="stat-label">Token 用量</span><span class="stat-value" id="modelTokens">—</span></div></div>
-              <button id="btnBroadcast" class="btn btn-main danger-wide">📢 下发广播指令</button>
-              <p style="text-align:center;font-size:11px;color:var(--muted);margin:6px 0 0;">将 AI 分析结论转化为设备广播动作</p>
-            </article>
+              <div class="conv-list" id="convList">
+                <div class="conv-empty">暂无对话记录<br>发送第一条消息开始</div>
+              </div>
+            </div>
+
+            <!-- 中：主对话区 -->
+            <div class="chat-main" id="chatMain">
+              <div class="chat-main-header">
+                <h4>消防知识库对话</h4>
+              </div>
+              <div class="chat-log" id="chatLog">
+                <div class="chat-empty-state" id="chatEmpty">
+                  <span class="empty-icon">💬</span>
+                  <strong>您好！我是智慧烟感智能助手</strong>
+                  <p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p>
+                  <div class="quick-qs">
+                    <span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span>
+                    <span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span>
+                    <span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span>
+                    <span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span>
+                  </div>
+                </div>
+              </div>
+              <div class="chat-input-row">
+                <textarea id="chatInput" placeholder="输入您的问题，例如：发生火灾如何逃生？" rows="2"></textarea>
+                <button id="btnSendQuestion" class="btn btn-main">发送消息</button>
+              </div>
+            </div>
+
+            <!-- 右：任务栏触发条 -->
+            <div class="right-taskbar-trigger" id="rightTaskbarTrigger" title="模型状态 & 广播指令">
+              任务面板
+            </div>
+
+            <!-- 右：任务栏面板 -->
+            <div class="right-taskbar" id="rightTaskbar">
+              <div class="taskbar-header">
+                <h4>🔧 模型状态 & 指令</h4>
+                <button class="btn ghost" id="btnCloseTaskbar" style="font-size:18px;">✕</button>
+              </div>
+              <div class="taskbar-body">
+                <div class="panel-header"><h3>当前大模型状态</h3></div>
+                <div id="aiJudgement" class="judgement">
+                  <div class="model-empty-state"><strong>暂无活跃告警</strong><p>请等待模型响应事件</p></div>
+                </div>
+                <div class="model-stats">
+                  <div class="stat-row"><span class="stat-label">模型引擎</span><span class="stat-value" id="modelEngine">DeepSeek-V4</span></div>
+                  <div class="stat-row"><span class="stat-label">响应延迟</span><span class="stat-value" id="modelLatency">— ms</span></div>
+                  <div class="stat-row"><span class="stat-label">会话轮次</span><span class="stat-value" id="modelRounds">0</span></div>
+                  <div class="stat-row"><span class="stat-label">Token 用量</span><span class="stat-value" id="modelTokens">—</span></div>
+                </div>
+                <button id="btnBroadcast" class="btn btn-main danger-wide" disabled>📢 下发广播指令</button>
+                <p style="text-align:center;font-size:11px;color:var(--muted);margin:6px 0 0;">将 AI 分析结论转化为设备广播动作</p>
+                <button id="btnTaskbarLog" class="btn ghost" style="width:100%;margin-top:10px;">📋 调试日志<span class="log-badge-count hidden" id="logBadge2">0</span></button>
+              </div>
+            </div>
           </div>
         </section>
 
+        <!-- ========== 告警日志 ========== -->
         <section id="view-alarms" class="view">
           <div class="module-heading"><div><h3>告警日志</h3><p>支持筛选、分页和处置操作</p></div><button id="btnRefreshAlarms" class="btn">刷新</button></div>
           <div class="panel">
@@ -158,7 +218,8 @@
         </div>
 
         <footer class="dashboard-footer"><span>系统版本: v2.0</span><span>部署环境: FE2-PC</span><span id="footerSyncTime">最后同步: --</span><span>© 2026 智慧烟感预警系统</span></footer>
-        <!-- ===== 调试日志抽屉 ===== -->
+
+        <!-- 调试日志抽屉 -->
         <div class="log-drawer-mask" id="logDrawerMask"></div>
         <div class="log-drawer" id="logDrawer">
           <div class="log-drawer-header"><h3>📋 请求日志 / 调试面板</h3><button class="btn ghost" id="btnCloseDrawer" style="font-size:18px;">✕</button></div>
