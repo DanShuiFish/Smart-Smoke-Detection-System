@@ -5,9 +5,9 @@ spring:
   application:
     name: smart-smoke-detection
   datasource:
-    url: ${DB_URL:jdbc:mysql://192.168.130.101:3306/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
+    url: ${DB_URL:jdbc:mysql://192.168.72.129:3306/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:123456}
+    password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:
@@ -17,7 +17,7 @@ spring:
       continue-on-error: true
   data:
     redis:
-      host: ${REDIS_HOST:192.168.130.101}
+      host: ${REDIS_HOST:192.168.72.129}
       port: 6379
       database: 0
       timeout: 3000ms
@@ -43,7 +43,7 @@ mybatis-plus:
 
 mqtt:
   broker:
-    url: ${MQTT_BROKER_URL:tcp://192.168.130.101:1883}
+    url: ${MQTT_BROKER_URL:tcp://192.168.72.129:1883}
     client-id: ${MQTT_CLIENT_ID:smart-smoke-backend}
     username: ${MQTT_USERNAME:fasong}
     password: ${MQTT_PASSWORD:fasong123}
@@ -58,3 +58,23 @@ mqtt:
 logging:
   level:
     com.smartsmoke: debug
+
+# ==================== BE3: AI 智能体配置 ====================
+# MaxKB V2 智能问答平台
+# url:        MaxKB 服务地址（仅域名+端口）
+# key:        API Key（agent-xxx 格式，已在 MaxKB 中绑定应用，无需 app-id）
+# chat-path:  API 端点模板，%s=sessionId
+# auth-header: 认证头名称
+# auth-prefix: 认证值前缀（Bearer + 空格）
+maxkb:
+  api:
+    url: ${MAXKB_API_URL:http://192.168.72.129:8080}
+    key: ${MAXKB_API_KEY:agent-f80381fc92fdbbfd9ea75940b7ca5c18}
+    chat-path: ${MAXKB_CHAT_PATH:/chat/api/chat_message/%s}
+    auth-header: ${MAXKB_AUTH_HEADER:Authorization}
+    auth-prefix: ${MAXKB_AUTH_PREFIX:Bearer }
+
+# SmartJavaAI 视觉识别（模拟期留空，自动使用 Mock 模式）
+smart-java-ai:
+  url: ${SMART_JAVA_AI_URL:}
+  key: ${SMART_JAVA_AI_KEY:}

@@ -102,34 +102,54 @@ public class AlarmRuleEngine {
 
         // 5. 如果级别 >= HIGH，调用 AI 视觉复核
         if ("HIGH".equals(alarmLevel) || "CRITICAL".equals(alarmLevel)) {
-            boolean hasFire = aiService.verifyFireVision("");
+            // 查询设备信息（获取硬件编号用于 CameraStrategy + 位置用于疏散广播）
+            SmokeDevice device = deviceMapper.selectById(data.getDeviceId());
+            String deviceCode = (device != null) ? device.getDeviceId() : "UNKNOWN";
+            String cameraId = null;
+            try {
+                // 尝试从扩展属性中获取关联的摄像头编号
+                if (device != null && device.getExtraAttrs() != null) {
+                    cameraId = (String) JSONUtil.parseObj(device.getExtraAttrs()).get("cameraId");
+                }
+            } catch (Exception ignored) { /* extraAttrs 解析失败则忽略 */ }
 
+            // 调用 BE3 的新版视觉复核接口（含 CameraStrategy + SmartJavaAI/Mock）
+            AiService.ReviewResult vision = aiService.verifyFireVision(data.getDeviceId(), deviceCode, cameraId);
+
+            // 记录 AI 复核结果
             AiReviewRecord review = new AiReviewRecord();
             review.setAlarmId(record.getId());
             review.setDeviceId(data.getDeviceId());
+            review.setImageUrl(vision.imageUrl);
+            review.setCameraId(cameraId);
             review.setReviewType("SMOKE_FIRE");
-            review.setReviewResult(hasFire ? "FIRE_CONFIRMED" : "NO_FIRE");
-            review.setConfidence(hasFire ? BigDecimal.valueOf(85.00) : BigDecimal.ZERO);
+            review.setReviewResult(vision.reviewResult);
+            review.setConfidence(BigDecimal.valueOf(vision.confidence));
+            review.setAiRawResponse(vision.aiRawResponse);
+            review.setProcessingTimeMs(vision.processingTimeMs);
             review.setCreateTime(LocalDateTime.now());
             aiReviewRecordMapper.insert(review);
 
             record.setIsVisionReviewed(1);
             record.setConfirmMethod("AUTO_VISION");
 
-            if (hasFire) {
+            if (vision.hasFire) {
                 record.setAlarmStatus("CONFIRMED");
 
                 // 6. AI 确认火情：查询设备位置，下发疏散广播
-                SmokeDevice device = deviceMapper.selectById(data.getDeviceId());
-                String building = device.getLocationBuilding() != null ? device.getLocationBuilding() : "未知楼栋";
-                String floor = device.getLocationFloor() != null ? device.getLocationFloor() : "未知楼层";
+                String building = (device != null && device.getLocationBuilding() != null)
+                        ? device.getLocationBuilding() : "未知楼栋";
+                String floor = (device != null && device.getLocationFloor() != null)
+                        ? device.getLocationFloor() : "未知楼层";
                 String broadcastContent = "【火警紧急通知】" + building + floor + "区域检测到火情，请立即按照疏散通道有序撤离！";
 
                 String cmdPayload = String.format(
                     "{\"cmd\":\"evacuate\",\"building\":\"%s\",\"floor\":\"%s\"}",
                     building, floor
                 );
-                mqttPublisher.sendCommand(device.getDeviceId(), cmdPayload);
+                if (device != null) {
+                    mqttPublisher.sendCommand(device.getDeviceId(), cmdPayload);
+                }
 
                 // 记录广播下发日志
                 BroadcastRecord bc = new BroadcastRecord();

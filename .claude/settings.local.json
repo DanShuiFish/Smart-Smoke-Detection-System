@@ -4,7 +4,10 @@
       "Bash(python *)",
       "WebSearch",
       "Bash(E:/Anaconda/python.exe *)",
-      "Bash(mvn compile *)"
+      "Bash(mvn compile *)",
+      "Skill(code-review)",
+      "Bash(git diff *)",
+      "WebFetch(domain:192.168.72.129)"
     ]
   }
 }

@@ -27,7 +27,7 @@ import threading
 from datetime import datetime
 
 # ====================== 配置区（优先从环境变量读取）======================
-MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.130.101")
+MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.72.129")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "smoke-simulator-python")
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "fasong")
