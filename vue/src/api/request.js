@@ -1,13 +1,14 @@
 import axios from 'axios'
+import { getToken, removeToken } from '../utils/token.js'
 
 const request = axios.create({
-  baseURL: '/api',
+  baseURL: '/api/v1',
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' }
 })
 
 request.interceptors.request.use(config => {
-  const token = localStorage.getItem('smoke_token')
+  const token = getToken()
   if (token) {
     config.headers['Authorization'] = 'Bearer ' + token
   }
@@ -21,16 +22,14 @@ request.interceptors.response.use(
       return res
     }
     if (res.code === 401) {
-      localStorage.removeItem('smoke_token')
-      localStorage.removeItem('smoke_user')
+      removeToken()
       window.location.href = '/login'
     }
     return Promise.reject(new Error(res.msg || '璇锋眰澶辫触'))
   },
   error => {
     if (error.response && error.response.status === 401) {
-      localStorage.removeItem('smoke_token')
-      localStorage.removeItem('smoke_user')
+      removeToken()
       window.location.href = '/login'
     }
     return Promise.reject(error)

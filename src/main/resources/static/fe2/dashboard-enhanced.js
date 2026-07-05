@@ -28,7 +28,7 @@ function el(id) { return document.getElementById(id); }
 function safeText(value, fallback = "--") { return value === null || value === undefined || value === "" ? fallback : String(value); }
 function escapeHtml(value) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;"); }
 function buildSessionId() { return "sess-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
-function getToken() { return localStorage.getItem("smartSmokeToken") || localStorage.getItem("token") || ""; }
+function getToken() { return localStorage.getItem("smoke_token") || localStorage.getItem("smartSmokeToken") || localStorage.getItem("token") || ""; }
 
 async function apiRequest(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };

@@ -78,6 +78,7 @@ import { useRouter } from 'vue-router'
 import { User, Lock, EditPen, Iphone, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { login as loginApi, register as registerApi } from '../api/auth.js'
+import { setToken, setUser } from '../utils/token.js'
 
 const router = useRouter()
 const formRef = ref(null)
@@ -142,14 +143,8 @@ async function handleSubmit() {
       ElMessage.success('登录成功！')
     }
     if (res.code === 200 && res.data) {
-      localStorage.setItem('smoke_token', res.data.token)
-      const u = res.data.user || res.data
-      localStorage.setItem('smoke_user', JSON.stringify({
-        userId: u.id || u.userId,
-        username: u.username,
-        realName: u.realName,
-        role: u.role
-      }))
+      setToken(res.data.token)
+      setUser(res.data.user || res.data)
       router.push('/device')
     } else {
       ElMessage.error(res.msg || '操作失败')

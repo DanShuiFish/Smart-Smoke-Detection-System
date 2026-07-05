@@ -100,17 +100,14 @@ import {
 } from '@element-plus/icons-vue'
 import { logout as logoutApi } from '../../api/auth.js'
 import { canAccessPage, roleLabel } from '../../utils/permissions.js'
+import { getUser, removeToken } from '../../utils/token.js'
 
 const route = useRoute()
 const router = useRouter()
 const isCollapse = ref(false)
 
 const user = computed(() => {
-  try {
-    return JSON.parse(localStorage.getItem('smoke_user')) || {}
-  } catch {
-    return {}
-  }
+  return getUser() || {}
 })
 
 const roleName = computed(() => roleLabel(user.value.role || ''))
@@ -129,8 +126,7 @@ function handleCommand(cmd) {
       try {
         await logoutApi()
       } catch (e) {}
-      localStorage.removeItem('smoke_token')
-      localStorage.removeItem('smoke_user')
+      removeToken()
       router.push('/login')
     }).catch(() => {})
   }

@@ -3,6 +3,7 @@ package com.smartsmoke.controller;
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.smartsmoke.common.DateTimeConst;
 import com.smartsmoke.common.PageResult;
 import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.AiReviewRecord;
@@ -13,7 +14,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 @RestController
@@ -21,7 +21,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AlarmController {
 
-    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private final AlarmRecordService alarmRecordService;
     private final AiReviewRecordMapper aiReviewRecordMapper;
 
@@ -41,8 +40,8 @@ public class AlarmController {
         if (type != null) qw.eq(AlarmRecord::getAlarmType, type);
         if (level != null) qw.eq(AlarmRecord::getAlarmLevel, level);
         if (deviceId != null) qw.eq(AlarmRecord::getDeviceId, deviceId);
-        if (start != null) qw.ge(AlarmRecord::getAlarmTime, LocalDateTime.parse(start, FMT));
-        if (end != null) qw.le(AlarmRecord::getAlarmTime, LocalDateTime.parse(end, FMT));
+        if (start != null) qw.ge(AlarmRecord::getAlarmTime, LocalDateTime.parse(start, DateTimeConst.FMT));
+        if (end != null) qw.le(AlarmRecord::getAlarmTime, LocalDateTime.parse(end, DateTimeConst.FMT));
         qw.orderByDesc(AlarmRecord::getAlarmTime);
         return Result.success(PageResult.of(alarmRecordService.page(new Page<>(page, pageSize), qw)));
     }

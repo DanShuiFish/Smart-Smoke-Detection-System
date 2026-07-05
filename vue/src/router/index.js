@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { canAccessPage } from '../utils/permissions.js'
+import { getToken } from '../utils/token.js'
 
 const routes = [
   {
@@ -53,7 +54,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('smoke_token')
+  const token = getToken()
   if (to.path !== '/login' && !token) {
     next('/login')
     return
