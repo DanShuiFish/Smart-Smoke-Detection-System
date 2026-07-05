@@ -1,6 +1,7 @@
 package com.smartsmoke.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -22,6 +23,7 @@ public class AlertThreshold {
     private String status;
     private Integer sortOrder;
     private String remark;
+    @JsonIgnore
     @TableLogic
     private Integer isDeleted;
     private String createBy;
