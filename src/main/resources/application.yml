@@ -58,3 +58,8 @@ mqtt:
 logging:
   level:
     com.smartsmoke: debug
+
+
+sa-token:
+  token-name: Authorization
+  token-prefix: Bearer

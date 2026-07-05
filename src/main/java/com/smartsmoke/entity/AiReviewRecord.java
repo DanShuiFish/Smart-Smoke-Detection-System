@@ -6,7 +6,8 @@ import java.time.LocalDateTime;
 
 @Data
 @TableName("ai_review_record")
-public class AiReviewRecord {
+public class
+AiReviewRecord {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long alarmId;

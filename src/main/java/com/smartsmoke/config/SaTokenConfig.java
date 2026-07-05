@@ -11,12 +11,11 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class SaTokenConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        // 注册 Sa-Token 拦截器 — 模拟期暂注释，正式环境恢复
-//        registry.addInterceptor(new SaInterceptor(handle -> {
-//            SaRouter.match("/api/**")
-//                    .notMatch("/api/auth/login")
-//                    .notMatch("/api/auth/register")
-//                    .check(r -> StpUtil.checkLogin());
-//        })).addPathPatterns("/**");
+        registry.addInterceptor(new SaInterceptor(handle -> {
+            SaRouter.match("/api/**")
+                    .notMatch("/api/v1/auth/login")
+                    .notMatch("/api/v1/auth/register")
+                    .check(r -> StpUtil.checkLogin());
+        })).addPathPatterns("/**");
     }
 }

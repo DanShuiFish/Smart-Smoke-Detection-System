@@ -1,6 +1,7 @@
 package com.smartsmoke.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -10,6 +11,7 @@ public class SysUser {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String username;
+    @JsonIgnore
     private String password;
     private String realName;
     private String phone;
@@ -21,6 +23,7 @@ public class SysUser {
     private String lastLoginIp;
     private LocalDateTime lastLoginTime;
     private Integer loginCount;
+    @JsonIgnore
     @TableLogic
     private Integer isDeleted;
     private String createBy;
