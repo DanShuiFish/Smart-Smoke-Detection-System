@@ -1,0 +1,24 @@
+{
+  "mqtt": {
+    "broker": "192.168.130.101",
+    "port": 1883,
+    "client_id": "smoke-simulator-gui",
+    "username": "fasong",
+    "password": "fasong123"
+  },
+  "defaults": {
+    "use_random": true,
+    "smoke": 0.02,
+    "temp": 25.0,
+    "humi": 45.0,
+    "bat": 95,
+    "rssi": -40,
+    "normal_interval": 5,
+    "heartbeat_interval": 10,
+    "offline_timeout": 35
+  },
+  "ui": {
+    "last_device_code": "SDS-001",
+    "last_mode": "normal"
+  }
+}

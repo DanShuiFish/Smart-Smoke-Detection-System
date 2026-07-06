@@ -1,0 +1,3 @@
+﻿$cp = [System.IO.File]::ReadAllText('D:\学习资料\暑期实训\Smart-Smoke-Detection-System111\classpath.txt')
+$p = Start-Process -FilePath 'C:\Users\潘宇星\.jdks\ms-17.0.19\bin\java.exe' -ArgumentList '-XX:TieredStopAtLevel=1','-Dspring.output.ansi.enabled=always','-Dfile.encoding=UTF-8','-classpath',$cp,'com.smartsmoke.SmartSmokeApplication' -WindowStyle Hidden -PassThru -WorkingDirectory 'D:\学习资料\暑期实训\Smart-Smoke-Detection-System111'
+Write-Host $p.Id
