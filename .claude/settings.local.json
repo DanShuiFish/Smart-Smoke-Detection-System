@@ -5,7 +5,17 @@
       "WebSearch",
       "Bash(E:/Anaconda/python.exe *)",
       "Bash(mvn compile *)",
-      "Bash(git checkout *)"
+      "WebFetch(domain:192.168.72.129)",
+      "Bash(curl -s -w \"\\\\n---HTTP_CODE:%{http_code}---\" -H \"Authorization: Bearer agent-f80381fc92fdbbfd9ea75940b7ca5c18\" \"http://192.168.72.129:8080/chat/api/open\")",
+      "Bash(sed 's/\"data\":\"//')",
+      "Bash(./mvnw compile *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:openi.pcl.ac.cn)",
+      "WebFetch(domain:huggingface.co)",
+      "WebFetch(domain:central.sonatype.com)",
+      "WebFetch(domain:doc.smartjavaai.cn)",
+      "WebFetch(domain:cloud.tencent.com.cn)",
+      "PowerShell(pip *)"
     ]
   }
 }
