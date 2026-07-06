@@ -91,8 +91,18 @@ public class MqttConsumer {
         );
 
         if (device == null) {
-            log.warn("收到未注册设备的心跳，硬件标识: {}", heartbeat.getDeviceId());
-            return;
+            log.info("发现新设备，自动注册: {}", heartbeat.getDeviceId());
+            device = new SmokeDevice();
+            device.setDeviceId(heartbeat.getDeviceId());
+            device.setDeviceName(heartbeat.getDeviceId()); // 默认名称 = 设备编号
+            device.setStatus("ONLINE");
+            device.setBattery(heartbeat.getBat());
+            device.setSignalStrength(heartbeat.getRssi());
+            device.setLastOnlineTime(LocalDateTime.now());
+            device.setLastHeartbeat(LocalDateTime.now());
+            device.setHeartbeatTimeout(30);
+            device.setSortOrder(999);
+            deviceMapper.insert(device);
         }
 
         SmokeDevice updateDevice = new SmokeDevice();
@@ -126,8 +136,17 @@ public class MqttConsumer {
         );
 
         if (device == null) {
-            log.warn("收到未注册设备的数据上报，硬件标识: {}", report.getDeviceId());
-            return;
+            log.info("发现新设备（数据上报触发自动注册）: {}", report.getDeviceId());
+            device = new SmokeDevice();
+            device.setDeviceId(report.getDeviceId());
+            device.setDeviceName(report.getDeviceId());
+            device.setStatus("ONLINE");
+            device.setBattery(report.getBat());
+            device.setSignalStrength(100);
+            device.setLastOnlineTime(LocalDateTime.now());
+            device.setHeartbeatTimeout(30);
+            device.setSortOrder(999);
+            deviceMapper.insert(device);
         }
 
         // 更新设备在线状态

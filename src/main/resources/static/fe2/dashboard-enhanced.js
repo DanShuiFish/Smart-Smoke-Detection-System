@@ -671,7 +671,11 @@ async function submitDeviceForm(event) {
     await Promise.all([loadDeviceStats(), loadDevices(isEdit ? state.devicesPage.page : 1), loadScreenData(), loadAnalysisData()]);
     showGlobalAlert(isEdit ? "设备更新成功" : "设备新增成功");
   } catch (error) {
-    setDeviceIdValidation(error.message.includes("设备编号") ? error.message : "", error.message.includes("设备编号") ? "error" : "");
+    // 弹窗内展示错误
+    const errMsg = error.message || "";
+    if (errMsg.includes("设备编号") || errMsg.includes("已存在") || errMsg.includes("409")) {
+      setDeviceIdValidation(errMsg.includes("409") ? "设备编号已存在" : errMsg, "error");
+    }
     showGlobalAlert(error.message);
   }
 }
@@ -711,10 +715,21 @@ async function openBindModal(deviceId) {
   const modal = el("bindModal");
   const title = el("bindModalTitle");
   if (!modal || !title) return;
-  // 获取设备名称
   const dev = (state.devicesPage.records || []).find((item) => String(item.id) === String(deviceId));
   title.textContent = "设备绑定 — " + (dev ? safeText(dev.deviceName || dev.deviceId, "设备") : deviceId);
   modal.classList.remove("hidden");
+  // 加载用户下拉框
+  const userSelect = el("bindUserId");
+  if (userSelect) {
+    userSelect.innerHTML = '<option value="">加载中...</option>';
+    try {
+      const users = await apiRequest("/users/simple");
+      userSelect.innerHTML = '<option value="">-- 请选择用户 --</option>' +
+        (users || []).map((u) => '<option value="' + escapeHtml(safeText(u.id, "")) + '">' + escapeHtml(safeText(u.realName || u.username, "用户")) + ' (' + escapeHtml(safeText(u.role, "--")) + ')</option>').join("");
+    } catch (err) {
+      userSelect.innerHTML = '<option value="">加载失败，请重试</option>';
+    }
+  }
   await loadBindings(1);
 }
 function closeBindModal() {
@@ -742,7 +757,7 @@ async function loadBindings(page) {
       });
     }
   } catch (error) {
-    body.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>加载失败</strong><p>' + escapeHtml(error.message) + '</p></div></td></tr>';
+    body.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>加载失败</strong><p>' + escapeHtml(error.message) + '</p></div></td></tr>';
   }
 }
 function renderBindTable() {
@@ -750,19 +765,20 @@ function renderBindTable() {
   if (!body) return;
   const rows = state.bindingsPage.records || [];
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>暂无绑定记录</strong><p>该设备尚未绑定任何用户，请通过下方表单新增绑定。</p></div></td></tr>';
+    body.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>暂无绑定记录</strong><p>该设备尚未绑定任何用户，请通过下方表单新增绑定。</p></div></td></tr>';
     return;
   }
-  body.innerHTML = rows.map((item) => {
-    const status = String(item.status || "--");
-    const statusClass = status === "BOUND" ? "ok" : "warn";
-    const unbindBtn = status === "BOUND"
+  var bindTypeLabel = { OWNER: "管理者", VIEWER: "使用者", ADMIN: "管理员" };
+  body.innerHTML = rows.map(function(item) {
+    var status = String(item.status || "--");
+    var statusClass = status === "BOUND" ? "ok" : "warn";
+    var unbindBtn = status === "BOUND"
       ? '<button class="btn danger" data-bind-unbind="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">解绑</button>'
       : '';
     return '<tr>' +
       '<td>' + escapeHtml(safeText(item.userRealName, "--")) + '</td>' +
       '<td>' + escapeHtml(safeText(item.deviceName, "--")) + '</td>' +
-      '<td>' + escapeHtml(safeText(item.bindType, "--")) + '</td>' +
+      '<td>' + escapeHtml(bindTypeLabel[item.bindType] || safeText(item.bindType, "--")) + '</td>' +
       '<td><span class="status-badge ' + statusClass + '">' + escapeHtml(status) + '</span></td>' +
       '<td>' + escapeHtml(safeText(item.bindTime, "--")) + '</td>' +
       '<td><div class="table-actions">' + unbindBtn + '</div></td>' +
@@ -784,11 +800,12 @@ async function submitBindForm(event) {
   const userIdInput = el("bindUserId");
   const bindTypeInput = el("bindBindType");
   const remarkInput = el("bindRemark");
-  const userId = userIdInput ? Number(userIdInput.value.trim()) : 0;
-  if (!userId || !Number.isFinite(userId) || userId <= 0) {
-    showGlobalAlert("请输入有效的用户ID");
+  const userIdVal = userIdInput ? userIdInput.value : "";
+  if (!userIdVal) {
+    showGlobalAlert("请选择用户");
     return;
   }
+  const userId = Number(userIdVal);
   try {
     await apiRequest("/bindings", {
       method: "POST",
@@ -1078,7 +1095,8 @@ async function loadAlarmRows(page = state.alarmsPage.page || 1) {
 function connectWebSocket() {
   try {
     if (!location.host) { setChip("wsStatus", "WebSocket: 已断开", "warn"); return; }
-    const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/alarm";
+    const token = getToken();
+    const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/alarm" + (token ? "?token=" + encodeURIComponent(token) : "");
     const socket = new WebSocket(wsUrl);
     socket.onopen = () => setChip("wsStatus", "WebSocket: 已连接", "ok");
     socket.onclose = () => setChip("wsStatus", "WebSocket: 已断开", "warn");
