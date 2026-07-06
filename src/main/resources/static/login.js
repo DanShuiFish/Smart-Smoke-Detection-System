@@ -2,7 +2,7 @@
  * 智慧烟感预警系统 - 登录/注册页
  * 登录成功后根据 role 跳转：
  *   RESIDENT → /user/index.html（居民用户端）
- *   其他     → /index.html（管理端）
+ *   其他     → /fe2/dashboard-enhanced.html（管理端大屏）
  */
 (function () {
   'use strict';
@@ -82,7 +82,7 @@
         if (role === 'RESIDENT') {
           window.location.href = '/user/index.html';
         } else {
-          window.location.href = '/index.html';
+          window.location.href = '/fe2/dashboard-enhanced.html';
         }
       } else {
         loginError.textContent = data.msg || '登录失败，请检查用户名和密码';
@@ -144,7 +144,7 @@
         if (userRole === 'RESIDENT') {
           window.location.href = '/user/index.html';
         } else {
-          window.location.href = '/index.html';
+          window.location.href = '/fe2/dashboard-enhanced.html';
         }
       } else {
         registerError.textContent = data.msg || '注册失败';
@@ -173,22 +173,7 @@
     }
   }
 
-  // ===== 页面加载时检查是否已登录 =====
-  (function checkLogin() {
-    const token = localStorage.getItem('smoke_token');
-    const userStr = localStorage.getItem('smoke_user');
-    if (!token || !userStr) return;
-
-    let user;
-    try { user = JSON.parse(userStr); } catch(e) { return; }
-
-    // 直接根据缓存的 role 跳转，无需请求后端
-    const role = (user.role || '').toUpperCase();
-    if (role === 'RESIDENT') {
-      window.location.href = '/user/index.html';
-    } else {
-      window.location.href = '/index.html';
-    }
-  })();
+  // ===== 登录页始终展示，不做自动跳转（方便同时演示管理端和用户端） =====
+  // 如需清除登录态，在浏览器控制台执行: localStorage.clear()
 
 })();

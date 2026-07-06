@@ -23,7 +23,7 @@
     // 验证登录状态
     const token = localStorage.getItem('smoke_token');
     if (!token) {
-      window.location.href = '/login.html';
+      window.location.href = '/index.html';
       return;
     }
 
@@ -166,7 +166,13 @@
     // KPI 统计
     try {
       const devResp = await apiGet('/bindings/my-devices?page=1&size=100');
-      const alarmResp = await apiGet('/alarms?page=1&pageSize=100');
+
+      // 用我的设备 ID 过滤告警
+      let alarmUrl = '/alarms?page=1&pageSize=100';
+      if (myDeviceIds.length > 0) {
+        alarmUrl += '&deviceIds=' + myDeviceIds.join(',');
+      }
+      const alarmResp = await apiGet(alarmUrl);
 
       let totalDevices = 0, onlineDevices = 0, todayAlarms = 0, pendingAlarms = 0;
 
@@ -315,10 +321,12 @@
       const startStr = formatDateTime(start);
       const endStr = formatDateTime(now);
 
-      const resp = await apiGet(`/data/history/${deviceId}?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`);
+      const resp = await apiGet(`/data/history/${deviceId}?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}&page=1&pageSize=2000`);
       if (resp.code !== 200) return;
 
-      const data = resp.data || [];
+      // DataController.history 返回 PageResult，取 records 数组
+      const pageData = resp.data || {};
+      const data = pageData.records || [];
       const times = data.map(d => d.collectTime || d.createTime || '').map(t => t.substring(11, 19));
       const smokeValues = data.map(d => d.smokeConcentration != null ? Number(d.smokeConcentration) : null).filter(v => v != null);
 

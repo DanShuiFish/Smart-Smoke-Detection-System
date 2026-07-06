@@ -14,6 +14,8 @@ const state = {
   analysis: { alarmTrend: [], alarmSample: [], deviceStats: [] },
   devicesPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   alarmsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
+  bindingsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
+  currentBindDeviceId: "",
 };
 const DEVICE_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{3,31}$/;
 
@@ -540,7 +542,7 @@ function renderDevicesTable() {
       '<td><span class="status-badge ' + deviceStatusClass(status) + '">' + escapeHtml(getDeviceStatusLabel(status)) + '</span></td>' +
       '<td>' + escapeHtml(safeText(item.battery, "--")) + '%</td>' +
       '<td>' + escapeHtml(safeText(item.signalStrength, "--")) + '%</td>' +
-      '<td><div class="table-actions"><button class="btn" data-device-edit="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">编辑</button><button class="btn danger" data-device-delete="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">删除</button><button class="btn" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button></div></td>' +
+      '<td><div class="table-actions"><button class="btn" data-device-edit="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">编辑</button><button class="btn danger" data-device-delete="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">删除</button><button class="btn" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button><button class="btn" data-device-bind="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">绑定</button></div></td>' +
       '</tr>';
   }).join("");
   body.querySelectorAll("input[data-device-check]").forEach((input) => input.addEventListener("change", () => toggleDeviceSelection(input.dataset.id, input.checked)));
@@ -555,6 +557,9 @@ function renderDevicesTable() {
   }));
   body.querySelectorAll("button[data-device-delete]").forEach((button) => button.addEventListener("click", async () => {
     await deleteDevice(button.dataset.id);
+  }));
+  body.querySelectorAll("button[data-device-bind]").forEach((button) => button.addEventListener("click", () => {
+    openBindModal(button.dataset.id);
   }));
   body.querySelectorAll("tr").forEach((row, index) => row.addEventListener("dblclick", () => showDeviceDetail(rows[index].id)));
   updateDeviceBatchHint();
@@ -699,6 +704,108 @@ function downloadDevicesCsv() {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
+}
+// ===== 设备绑定管理 =====
+async function openBindModal(deviceId) {
+  state.currentBindDeviceId = String(deviceId);
+  const modal = el("bindModal");
+  const title = el("bindModalTitle");
+  if (!modal || !title) return;
+  // 获取设备名称
+  const dev = (state.devicesPage.records || []).find((item) => String(item.id) === String(deviceId));
+  title.textContent = "设备绑定 — " + (dev ? safeText(dev.deviceName || dev.deviceId, "设备") : deviceId);
+  modal.classList.remove("hidden");
+  await loadBindings(1);
+}
+function closeBindModal() {
+  const modal = el("bindModal");
+  if (modal) modal.classList.add("hidden");
+  state.currentBindDeviceId = "";
+}
+async function loadBindings(page) {
+  const body = el("bindTableBody");
+  const pagination = el("bindPagination");
+  if (!body) return;
+  try {
+    const data = await apiRequest("/bindings?deviceId=" + state.currentBindDeviceId + "&page=" + page + "&pageSize=" + state.bindingsPage.pageSize);
+    state.bindingsPage = normalizePageResult(data, page, state.bindingsPage.pageSize);
+    renderBindTable();
+    // 分页
+    if (pagination) {
+      const pg = state.bindingsPage;
+      pagination.innerHTML = '<span class="page-info">第 ' + pg.page + ' / ' + pg.pages + ' 页，共 ' + pg.total + ' 条</span><div class="page-actions"><button class="btn" data-bind-page="prev" ' + (pg.page <= 1 ? 'disabled' : '') + '>上一页</button><button class="btn" data-bind-page="next" ' + (pg.page >= pg.pages ? 'disabled' : '') + '>下一页</button></div>';
+      pagination.querySelectorAll("button[data-bind-page]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const targetPage = btn.dataset.bindPage === "next" ? pg.page + 1 : pg.page - 1;
+          loadBindings(targetPage);
+        });
+      });
+    }
+  } catch (error) {
+    body.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>加载失败</strong><p>' + escapeHtml(error.message) + '</p></div></td></tr>';
+  }
+}
+function renderBindTable() {
+  const body = el("bindTableBody");
+  if (!body) return;
+  const rows = state.bindingsPage.records || [];
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>暂无绑定记录</strong><p>该设备尚未绑定任何用户，请通过下方表单新增绑定。</p></div></td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map((item) => {
+    const status = String(item.status || "--");
+    const statusClass = status === "BOUND" ? "ok" : "warn";
+    const unbindBtn = status === "BOUND"
+      ? '<button class="btn danger" data-bind-unbind="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">解绑</button>'
+      : '';
+    return '<tr>' +
+      '<td>' + escapeHtml(safeText(item.userRealName, "--")) + '</td>' +
+      '<td>' + escapeHtml(safeText(item.deviceName, "--")) + '</td>' +
+      '<td>' + escapeHtml(safeText(item.bindType, "--")) + '</td>' +
+      '<td><span class="status-badge ' + statusClass + '">' + escapeHtml(status) + '</span></td>' +
+      '<td>' + escapeHtml(safeText(item.bindTime, "--")) + '</td>' +
+      '<td><div class="table-actions">' + unbindBtn + '</div></td>' +
+      '</tr>';
+  }).join("");
+  body.querySelectorAll("button[data-bind-unbind]").forEach((btn) => btn.addEventListener("click", async () => {
+    if (!confirm("确认解绑该绑定关系？")) return;
+    try {
+      await apiRequest("/bindings/" + btn.dataset.id + "/unbind", { method: "PUT", body: JSON.stringify({ remark: "管理端解绑" }) });
+      showGlobalAlert("解绑成功");
+      await loadBindings(state.bindingsPage.page);
+    } catch (error) {
+      showGlobalAlert("解绑失败: " + error.message);
+    }
+  }));
+}
+async function submitBindForm(event) {
+  event.preventDefault();
+  const userIdInput = el("bindUserId");
+  const bindTypeInput = el("bindBindType");
+  const remarkInput = el("bindRemark");
+  const userId = userIdInput ? Number(userIdInput.value.trim()) : 0;
+  if (!userId || !Number.isFinite(userId) || userId <= 0) {
+    showGlobalAlert("请输入有效的用户ID");
+    return;
+  }
+  try {
+    await apiRequest("/bindings", {
+      method: "POST",
+      body: JSON.stringify({
+        deviceId: Number(state.currentBindDeviceId),
+        userId: userId,
+        bindType: bindTypeInput ? bindTypeInput.value : "OWNER",
+        remark: remarkInput ? remarkInput.value.trim() : "",
+      }),
+    });
+    if (userIdInput) userIdInput.value = "";
+    if (remarkInput) remarkInput.value = "";
+    showGlobalAlert("绑定成功");
+    await loadBindings(1);
+  } catch (error) {
+    showGlobalAlert("绑定失败: " + error.message);
+  }
 }
 async function batchHandleAlarms(action) {
   if (!state.selectedAlarmIds.length) return showGlobalAlert("请先选择要批量处理的告警");
@@ -1074,6 +1181,8 @@ function bindEvents() {
   const btnOpenLogDrawer = el("btnOpenLogDrawer"); if (btnOpenLogDrawer) btnOpenLogDrawer.addEventListener("click", openLogDrawer);
   const btnCloseDrawer = el("btnCloseDrawer"); if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeLogDrawer);
   const logDrawerMask = el("logDrawerMask"); if (logDrawerMask) logDrawerMask.addEventListener("click", closeLogDrawer);
+  // 绑定弹窗
+  const bindForm = el("bindForm"); if (bindForm) bindForm.addEventListener("submit", submitBindForm);
   bindQuickQs();
   document.addEventListener("click", (event) => {
     const modal = el("detailModal");
@@ -1082,6 +1191,9 @@ function bindEvents() {
     if (formModal && !formModal.classList.contains("hidden") && event.target === formModal.querySelector(".modal-mask")) closeDeviceFormModal();
     if (event.target && event.target.matches && event.target.matches("[data-device-form-close='true']")) closeDeviceFormModal();
     if (event.target && event.target.matches && event.target.matches("[data-modal-close='true']")) closeDetailModal();
+    if (event.target && event.target.matches && event.target.matches("[data-bind-close='true']")) closeBindModal();
+    const bindModal = el("bindModal");
+    if (bindModal && !bindModal.classList.contains("hidden") && event.target === bindModal.querySelector(".modal-mask")) closeBindModal();
   });
 }
 
