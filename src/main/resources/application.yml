@@ -5,7 +5,7 @@ spring:
   application:
     name: smart-smoke-detection
   datasource:
-    url: ${DB_URL:jdbc:mysql://192.168.130.101:3306/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
+    url: ${DB_URL:jdbc:mysql://localhost:3306/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -16,7 +16,7 @@ spring:
       continue-on-error: true
   data:
     redis:
-      host: ${REDIS_HOST:192.168.130.101}
+      host: ${REDIS_HOST:localhost}
       port: 6379
       database: 0
       timeout: 3000ms
@@ -25,6 +25,10 @@ spring:
           max-active: 8
           max-idle: 8
           min-idle: 0
+
+sa-token:
+  # 关闭全局过滤器（SaPathCheckFilterForJakartaServlet），避免拦截静态资源
+  is-global-filter: false
 
 mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
@@ -42,7 +46,7 @@ mybatis-plus:
 
 mqtt:
   broker:
-    url: ${MQTT_BROKER_URL:tcp://192.168.130.101:1883}
+    url: ${MQTT_BROKER_URL:tcp://192.168.142.128:1883}
     client-id: ${MQTT_CLIENT_ID:smart-smoke-backend}
     username: ${MQTT_USERNAME:fasong}
     password: ${MQTT_PASSWORD:fasong123}
@@ -58,7 +62,12 @@ logging:
   level:
     com.smartsmoke: debug
 
+maxkb:
+  base-url: ${MAXKB_BASE_URL:http://192.168.72.129:8080/chat/api}
+  api-key: ${MAXKB_API_KEY:agent-f80381fc92fdbbfd9ea75940b7ca5c18}
+  application-id: ${MAXKB_APP_ID:019f2b03-6788-73a3-9ddf-555c3926a6fe}
+  timeout: 30000
 
-sa-token:
-  token-name: Authorization
-  token-prefix: Bearer
+smart-java-ai:
+  model-path: ${SMART_AI_MODEL_PATH:./smart-smoke-models}
+  threshold: 0.5

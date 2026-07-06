@@ -1,1 +1,0 @@
-import{r}from"./request.3d257514.js";function u(t){return r({url:"/auth/login",method:"post",data:t})}function e(t){return r({url:"/auth/register",method:"post",data:t})}function n(){return r({url:"/auth/logout",method:"post"})}export{n as a,u as l,e as r};

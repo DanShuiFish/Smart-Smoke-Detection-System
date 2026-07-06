@@ -87,18 +87,53 @@
         </section>
 
         <section id="view-devices" class="view">
-          <div class="module-heading"><div><h3>设备管理</h3><p>筛选、查看和分页浏览设备状态</p></div><button id="btnRefreshDevices" class="btn">刷新</button></div>
+          <div class="module-heading">
+            <div><h3>设备管理</h3><p>支持设备查询、增删改查、统计筛选与 CSV 导出</p></div>
+            <div class="toolbar">
+              <button id="btnRefreshDevices" class="btn">刷新</button>
+              <button id="btnAddDevice" class="btn btn-main">新增设备</button>
+            </div>
+          </div>
+          <div id="deviceStatsCards" class="device-stats-grid">
+            <button class="device-stat-card active" type="button" data-device-stat-filter="">
+              <span>设备总数</span>
+              <strong id="deviceStatTotal">0</strong>
+            </button>
+            <button class="device-stat-card" type="button" data-device-stat-filter="ONLINE">
+              <span>在线设备</span>
+              <strong id="deviceStatOnline">0</strong>
+            </button>
+            <button class="device-stat-card" type="button" data-device-stat-filter="OFFLINE">
+              <span>离线设备</span>
+              <strong id="deviceStatOffline">0</strong>
+            </button>
+            <button class="device-stat-card" type="button" data-device-stat-filter="ERROR">
+              <span>故障设备</span>
+              <strong id="deviceStatError">0</strong>
+            </button>
+            <button class="device-stat-card" type="button" data-device-stat-filter="INACTIVE">
+              <span>未激活</span>
+              <strong id="deviceStatInactive">0</strong>
+            </button>
+            <button class="device-stat-card" type="button" data-device-stat-filter="AVG_BATTERY">
+              <span>平均电量</span>
+              <strong id="deviceStatAvgBattery">0%</strong>
+            </button>
+          </div>
           <div class="panel">
             <div class="panel-header">
               <h3>设备列表</h3>
               <div class="toolbar">
-                <input id="deviceKeyword" type="text" placeholder="搜索设备名称/编号" />
+                <input id="deviceKeyword" type="text" placeholder="按名称或编号搜索" />
+                <input id="deviceBuildingFilter" type="text" placeholder="按楼栋搜索" />
                 <select id="deviceStatusFilter"><option value="">全部状态</option><option value="ONLINE">在线</option><option value="OFFLINE">离线</option><option value="ERROR">故障</option><option value="INACTIVE">未激活</option></select>
                 <button id="btnSearchDevices" class="btn btn-main">查询</button>
+                <button id="btnResetDevices" class="btn">重置</button>
+                <button id="btnExportDevices" class="btn">导出 CSV</button>
               </div>
             </div>
             <div class="batch-bar"><span id="deviceBatchHint" class="batch-hint">已选择 0 台设备</span><div class="batch-actions"><button id="btnSelectAllDevices" class="btn">全选</button><button id="btnClearDevices" class="btn">取消选择</button><button id="btnBatchDeleteDevices" class="btn danger">批量删除</button></div></div>
-            <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="deviceSelectAll" /></th><th>设备名称</th><th>设备编号</th><th>楼栋</th><th>楼层</th><th>状态</th><th>烟雾</th><th>温度</th><th>湿度</th><th>详情</th></tr></thead><tbody id="deviceTableBody"></tbody></table></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="deviceSelectAll" /></th><th>设备名称</th><th>设备编号</th><th>楼栋</th><th>楼层</th><th>房间</th><th>状态</th><th>电量</th><th>信号</th><th>操作</th></tr></thead><tbody id="deviceTableBody"></tbody></table></div>
             <div id="devicePagination" class="pagination-bar"></div>
           </div>
         </section>
@@ -156,6 +191,74 @@
             <div id="detailModalBody" class="modal-body"></div>
           </div>
         </div>
+        <div id="deviceFormModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="deviceFormTitle">
+          <div class="modal-mask" data-device-form-close="true"></div>
+          <div class="modal-panel">
+            <div class="modal-header"><h3 id="deviceFormTitle">新增设备</h3><button class="btn" type="button" data-device-form-close="true">关闭</button></div>
+            <form id="deviceForm" class="device-form" novalidate>
+              <div class="device-form-grid">
+                <label class="form-field">
+                  <span>设备名称</span>
+                  <input id="formDeviceName" name="deviceName" type="text" maxlength="50" required />
+                </label>
+                <label class="form-field">
+                  <span>设备编号</span>
+                  <input id="formDeviceId" name="deviceId" type="text" maxlength="32" placeholder="示例：SMOKE-1001" required />
+                  <small id="deviceIdValidationMsg" class="field-tip"></small>
+                </label>
+                <label class="form-field">
+                  <span>设备型号</span>
+                  <input id="formDeviceModel" name="deviceModel" type="text" maxlength="50" />
+                </label>
+                <label class="form-field">
+                  <span>固件版本</span>
+                  <input id="formFirmwareVersion" name="firmwareVersion" type="text" maxlength="30" />
+                </label>
+                <label class="form-field">
+                  <span>设备状态</span>
+                  <select id="formStatus" name="status">
+                    <option value="ONLINE">在线</option>
+                    <option value="OFFLINE">离线</option>
+                    <option value="ERROR">故障</option>
+                    <option value="INACTIVE">未激活</option>
+                  </select>
+                </label>
+                <label class="form-field">
+                  <span>电量</span>
+                  <input id="formBattery" name="battery" type="number" min="0" max="100" value="100" />
+                </label>
+                <label class="form-field">
+                  <span>信号强度</span>
+                  <input id="formSignalStrength" name="signalStrength" type="number" min="0" max="100" value="100" />
+                </label>
+                <label class="form-field">
+                  <span>心跳超时(秒)</span>
+                  <input id="formHeartbeatTimeout" name="heartbeatTimeout" type="number" min="10" max="3600" value="120" />
+                </label>
+                <label class="form-field">
+                  <span>楼栋</span>
+                  <input id="formLocationBuilding" name="locationBuilding" type="text" maxlength="30" />
+                </label>
+                <label class="form-field">
+                  <span>楼层</span>
+                  <input id="formLocationFloor" name="locationFloor" type="text" maxlength="20" />
+                </label>
+                <label class="form-field">
+                  <span>房间</span>
+                  <input id="formLocationRoom" name="locationRoom" type="text" maxlength="20" />
+                </label>
+                <label class="form-field form-field-full">
+                  <span>备注</span>
+                  <textarea id="formRemark" name="remark" rows="3" maxlength="200"></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="button" class="btn" data-device-form-close="true">取消</button>
+                <button id="btnSubmitDeviceForm" type="submit" class="btn btn-main">保存</button>
+              </div>
+            </form>
+          </div>
+        </div>
 
         <footer class="dashboard-footer"><span>系统版本: v2.0</span><span>部署环境: FE2-PC</span><span id="footerSyncTime">最后同步: --</span><span>© 2026 智慧烟感预警系统</span></footer>
         <!-- ===== 调试日志抽屉 ===== -->
@@ -166,6 +269,7 @@
         </div>
       </main>
     </div>
+    <script src="./auth-guard.js"></script>
     <script src="./dashboard-enhanced.js"></script>
   </body>
 </html>

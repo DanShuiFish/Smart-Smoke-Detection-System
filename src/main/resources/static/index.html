@@ -1,14 +1,267 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>智慧烟感预警系统</title>
-  <script type="module" crossorigin src="/assets/index.5333bb03.js"></script>
-  <link rel="stylesheet" href="/assets/index.9ce06c6c.css">
+  <title>智慧烟感预警系统登录</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --line: #d9e3f0;
+      --text: #1f2a37;
+      --muted: #6b7280;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --danger: #dc2626;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      background:
+        linear-gradient(135deg, rgba(37,99,235,0.08), rgba(16,185,129,0.06)),
+        linear-gradient(0deg, #f8fbff, #eef4fb);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+    }
+    .login-shell {
+      width: min(960px, calc(100vw - 32px));
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(255,255,255,0.9);
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 18px 60px rgba(37, 99, 235, 0.12);
+      backdrop-filter: blur(12px);
+    }
+    .hero {
+      padding: 48px 42px;
+      background:
+        radial-gradient(circle at top left, rgba(37,99,235,0.18), transparent 40%),
+        radial-gradient(circle at bottom right, rgba(16,185,129,0.18), transparent 38%);
+      border-right: 1px solid rgba(217,227,240,0.8);
+    }
+    .hero h1 {
+      margin: 0 0 12px;
+      font-size: 38px;
+      line-height: 1.15;
+    }
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+    .hero-cards {
+      margin-top: 28px;
+      display: grid;
+      gap: 14px;
+    }
+    .hero-card {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.76);
+    }
+    .hero-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+    .hero-card span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .panel {
+      padding: 42px 34px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+    .panel .sub {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .form-row {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    label {
+      font-size: 14px;
+      color: #374151;
+    }
+    input {
+      width: 100%;
+      height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0 14px;
+      font-size: 15px;
+      outline: none;
+      background: #fff;
+    }
+    input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(37,99,235,0.10);
+    }
+    button {
+      height: 46px;
+      border: 0;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      color: #fff;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      box-shadow: 0 10px 20px rgba(37,99,235,0.18);
+    }
+    button[disabled] {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+    .hint {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .error {
+      min-height: 20px;
+      margin: 10px 0 0;
+      color: var(--danger);
+      font-size: 13px;
+    }
+    @media (max-width: 860px) {
+      .login-shell { grid-template-columns: 1fr; }
+      .hero { display: none; }
+      .panel { padding: 32px 22px; }
+    }
+  </style>
 </head>
 <body>
-  <div id="app"></div>
-  
+  <div class="login-shell">
+    <section class="hero">
+      <h1>智慧烟感<br />数据大屏</h1>
+      <p>登录后进入实时监测、设备态势、告警联动与 AI 辅助分析界面。</p>
+      <div class="hero-cards">
+        <div class="hero-card">
+          <strong>实时联动</strong>
+          <span>烟雾、温度、设备在线率和告警状态统一汇总展示。</span>
+        </div>
+        <div class="hero-card">
+          <strong>告警闭环</strong>
+          <span>支持从监测到告警，再到广播和 AI 分析的完整流程。</span>
+        </div>
+        <div class="hero-card">
+          <strong>大屏入口</strong>
+          <span>登录成功后自动跳转到 FE2 数据大屏。</span>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>账号登录</h2>
+      <p class="sub">登录成功后进入数据大屏</p>
+      <form id="loginForm">
+        <div class="form-row">
+          <label for="username">用户名</label>
+          <input id="username" name="username" autocomplete="username" placeholder="请输入用户名" required />
+        </div>
+        <div class="form-row">
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
+        </div>
+        <button id="submitBtn" type="submit">登录并进入大屏</button>
+        <div id="error" class="error"></div>
+      </form>
+      <p class="hint">默认管理员可使用 `admin / admin123`</p>
+    </section>
+  </div>
+  <script>
+    (function () {
+      var form = document.getElementById("loginForm");
+      var errorNode = document.getElementById("error");
+      var submitBtn = document.getElementById("submitBtn");
+      var usernameInput = document.getElementById("username");
+      var passwordInput = document.getElementById("password");
+
+      function getToken() {
+        return localStorage.getItem("smoke_token") || localStorage.getItem("smartSmokeToken") || localStorage.getItem("token") || "";
+      }
+
+      function clearAuth() {
+        localStorage.removeItem("smoke_token");
+        localStorage.removeItem("smartSmokeToken");
+        localStorage.removeItem("token");
+        localStorage.removeItem("smoke_user");
+      }
+
+      async function validateStoredToken() {
+        var token = getToken();
+        if (!token) return;
+        try {
+          var response = await fetch("/api/v1/auth/me", {
+            method: "GET",
+            headers: { "Authorization": "Bearer " + token }
+          });
+          var result = await response.json();
+          if (response.ok && result && result.code === 200) {
+            location.replace("/fe2/dashboard-enhanced.html");
+            return;
+          }
+          clearAuth();
+        } catch (error) {
+          clearAuth();
+        }
+      }
+
+      validateStoredToken();
+
+      form.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        errorNode.textContent = "";
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Logging in...";
+
+        try {
+          var response = await fetch("/api/v1/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              username: usernameInput.value.trim(),
+              password: passwordInput.value
+            })
+          });
+          var result = await response.json();
+          if (!response.ok || !result || result.code !== 200 || !result.data) {
+            throw new Error((result && result.msg) || "Login failed");
+          }
+          clearAuth();
+          localStorage.setItem("smoke_token", result.data.token || "");
+          if (result.data.user) {
+            localStorage.setItem("smoke_user", JSON.stringify({
+              userId: result.data.user.id || result.data.user.userId,
+              username: result.data.user.username,
+              realName: result.data.user.realName,
+              role: result.data.user.role
+            }));
+          }
+          location.replace("/fe2/dashboard-enhanced.html");
+        } catch (error) {
+          errorNode.textContent = error.message || "Login failed";
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Login and enter screen";
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

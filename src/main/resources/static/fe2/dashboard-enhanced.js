@@ -5,11 +5,17 @@ const state = {
   selectedDeviceId: "",
   selectedDeviceIds: [],
   selectedAlarmIds: [],
+  deviceStatusQuickFilter: "",
+  deviceFilterAvgBattery: false,
+  deviceStats: { total: 0, online: 0, offline: 0, error: 0, inactive: 0, avgBattery: 0 },
+  deviceFormMode: "create",
+  editingDeviceId: "",
   screen: { stats: {}, realtime: {}, alarmSample: [] },
   analysis: { alarmTrend: [], alarmSample: [], deviceStats: [] },
   devicesPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   alarmsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
 };
+const DEVICE_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{3,31}$/;
 
 const charts = {
   screenRealtime: null,
@@ -29,12 +35,25 @@ function safeText(value, fallback = "--") { return value === null || value === u
 function escapeHtml(value) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;"); }
 function buildSessionId() { return "sess-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
 function getToken() { return localStorage.getItem("smoke_token") || localStorage.getItem("smartSmokeToken") || localStorage.getItem("token") || ""; }
+function clearAuthAndBackToLogin() {
+  localStorage.removeItem("smoke_token");
+  localStorage.removeItem("smartSmokeToken");
+  localStorage.removeItem("token");
+  localStorage.removeItem("smoke_user");
+  if (!location.pathname.endsWith("/index.html") && location.pathname !== "/") {
+    location.replace("/");
+  }
+}
 
 async function apiRequest(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = getToken();
   if (token) headers.Authorization = "Bearer " + token;
   const response = await fetch(API_BASE + path, { ...options, headers });
+  if (response.status === 401) {
+    clearAuthAndBackToLogin();
+    throw new Error("未登录或登录已失效");
+  }
   if (!response.ok) throw new Error("HTTP " + response.status + " " + path);
   const body = await response.json();
   if (body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "code")) {
@@ -316,13 +335,19 @@ function updateScreenDeviceSelect() {
   const select = el("screenDeviceSelect");
   if (!select) return;
   const records = state.devicesPage.records || [];
-  select.innerHTML = records.map((item) => '<option value="' + escapeHtml(safeText(item.id, "")) + '">' + escapeHtml(safeText(item.deviceName, item.deviceCode || "设备")) + '</option>').join("") || '<option value="">暂无设备</option>';
+  select.innerHTML = records.map((item) => '<option value="' + escapeHtml(safeText(item.id, "")) + '">' + escapeHtml(safeText(item.deviceName, item.deviceId || "设备")) + '</option>').join("") || '<option value="">暂无设备</option>';
   if (!state.selectedDeviceId && records.length) state.selectedDeviceId = String(records[0].id || "");
   if (state.selectedDeviceId) select.value = state.selectedDeviceId;
 }
+function getVisibleDeviceRecords() {
+  return (state.devicesPage.records || []).filter((item) => !state.deviceFilterAvgBattery || Number(item.battery || 0) <= Number(state.deviceStats.avgBattery || 0));
+}
 function updateDeviceBatchHint() {
   const node = el("deviceBatchHint"); if (node) node.textContent = "已选择 " + state.selectedDeviceIds.length + " 台设备";
-  const selectAll = el("deviceSelectAll"); if (selectAll) selectAll.checked = state.devicesPage.records.length > 0 && state.selectedDeviceIds.length === state.devicesPage.records.length;
+  const visibleRows = getVisibleDeviceRecords();
+  const visibleIds = visibleRows.map((item) => String(item.id));
+  const selectAll = el("deviceSelectAll");
+  if (selectAll) selectAll.checked = visibleRows.length > 0 && visibleIds.every((id) => state.selectedDeviceIds.includes(id));
 }
 function updateAlarmBatchHint() {
   const node = el("alarmBatchHint"); if (node) node.textContent = "已选择 " + state.selectedAlarmIds.length + " 条告警";
@@ -349,20 +374,135 @@ function openDetailModal(title, rows) {
   modal.classList.remove("hidden");
 }
 function closeDetailModal() { const modal = el("detailModal"); if (modal) modal.classList.add("hidden"); }
-function showDeviceDetail(id) {
-  const item = (state.devicesPage.records || []).find((row) => String(row.id) === String(id));
-  if (!item) return;
-  openDetailModal("设备详情", [
-    { label: "设备名称", value: safeText(item.deviceName, "--") },
-    { label: "设备编号", value: safeText(item.deviceCode || item.deviceId, "--") },
-    { label: "楼栋", value: safeText(item.locationBuilding || item.building, "--") },
-    { label: "楼层", value: safeText(item.locationFloor || item.floor, "--") },
-    { label: "状态", value: safeText(item.status, "--") },
-    { label: "烟雾", value: safeText(item.latestSmoke, "--") },
-    { label: "温度", value: safeText(item.latestTemp, "--") },
-    { label: "湿度", value: safeText(item.latestHumidity, "--") },
-    { label: "备注", value: safeText(item.remark || item.description, "--"), full: true },
-  ]);
+function getDeviceStatusLabel(status) {
+  const map = { ONLINE: "在线", OFFLINE: "离线", ERROR: "故障", INACTIVE: "未激活" };
+  return map[String(status || "").toUpperCase()] || safeText(status, "--");
+}
+function getDevicePayloadFromForm() {
+  return {
+    deviceName: safeText(el("formDeviceName") && el("formDeviceName").value, "").trim(),
+    deviceId: safeText(el("formDeviceId") && el("formDeviceId").value, "").trim(),
+    deviceModel: safeText(el("formDeviceModel") && el("formDeviceModel").value, "").trim(),
+    firmwareVersion: safeText(el("formFirmwareVersion") && el("formFirmwareVersion").value, "").trim(),
+    status: safeText(el("formStatus") && el("formStatus").value, "OFFLINE").trim(),
+    battery: Number(safeText(el("formBattery") && el("formBattery").value, "0")),
+    signalStrength: Number(safeText(el("formSignalStrength") && el("formSignalStrength").value, "0")),
+    heartbeatTimeout: Number(safeText(el("formHeartbeatTimeout") && el("formHeartbeatTimeout").value, "120")),
+    locationBuilding: safeText(el("formLocationBuilding") && el("formLocationBuilding").value, "").trim(),
+    locationFloor: safeText(el("formLocationFloor") && el("formLocationFloor").value, "").trim(),
+    locationRoom: safeText(el("formLocationRoom") && el("formLocationRoom").value, "").trim(),
+    remark: safeText(el("formRemark") && el("formRemark").value, "").trim(),
+  };
+}
+function setDeviceIdValidation(message, level) {
+  const node = el("deviceIdValidationMsg");
+  if (!node) return;
+  node.textContent = message || "";
+  node.classList.remove("error", "ok");
+  if (level) node.classList.add(level);
+}
+function fillDeviceForm(item) {
+  if (el("formDeviceName")) el("formDeviceName").value = safeText(item && item.deviceName, "");
+  if (el("formDeviceId")) el("formDeviceId").value = safeText(item && item.deviceId, "");
+  if (el("formDeviceModel")) el("formDeviceModel").value = safeText(item && item.deviceModel, "");
+  if (el("formFirmwareVersion")) el("formFirmwareVersion").value = safeText(item && item.firmwareVersion, "");
+  if (el("formStatus")) el("formStatus").value = safeText(item && item.status, "OFFLINE");
+  if (el("formBattery")) el("formBattery").value = safeText(item && item.battery, 100);
+  if (el("formSignalStrength")) el("formSignalStrength").value = safeText(item && item.signalStrength, 100);
+  if (el("formHeartbeatTimeout")) el("formHeartbeatTimeout").value = safeText(item && item.heartbeatTimeout, 120);
+  if (el("formLocationBuilding")) el("formLocationBuilding").value = safeText(item && item.locationBuilding, "");
+  if (el("formLocationFloor")) el("formLocationFloor").value = safeText(item && item.locationFloor, "");
+  if (el("formLocationRoom")) el("formLocationRoom").value = safeText(item && item.locationRoom, "");
+  if (el("formRemark")) el("formRemark").value = safeText(item && item.remark, "");
+}
+function openDeviceFormModal(mode, item) {
+  state.deviceFormMode = mode;
+  state.editingDeviceId = item && item.id ? String(item.id) : "";
+  const modal = el("deviceFormModal");
+  const title = el("deviceFormTitle");
+  const form = el("deviceForm");
+  if (!modal || !title || !form) return;
+  title.textContent = mode === "edit" ? "编辑设备" : "新增设备";
+  form.reset();
+  fillDeviceForm(item || {});
+  setDeviceIdValidation("", "");
+  modal.classList.remove("hidden");
+}
+function closeDeviceFormModal() {
+  const modal = el("deviceFormModal");
+  if (modal) modal.classList.add("hidden");
+  state.editingDeviceId = "";
+}
+async function validateDeviceForm(checkUnique) {
+  const payload = getDevicePayloadFromForm();
+  if (!payload.deviceName) throw new Error("请输入设备名称");
+  if (!payload.deviceId) throw new Error("请输入设备编号");
+  if (!DEVICE_ID_REGEX.test(payload.deviceId)) throw new Error("设备编号仅支持 4-32 位字母、数字、下划线或中划线");
+  if (!Number.isFinite(payload.battery) || payload.battery < 0 || payload.battery > 100) throw new Error("电量范围应为 0-100");
+  if (!Number.isFinite(payload.signalStrength) || payload.signalStrength < 0 || payload.signalStrength > 100) throw new Error("信号强度范围应为 0-100");
+  if (!Number.isFinite(payload.heartbeatTimeout) || payload.heartbeatTimeout < 10 || payload.heartbeatTimeout > 3600) throw new Error("心跳超时范围应为 10-3600 秒");
+  if (checkUnique) {
+    const duplicated = await checkDeviceIdUnique(payload.deviceId, state.editingDeviceId);
+    if (duplicated) throw new Error("设备编号已存在: " + payload.deviceId);
+  }
+  return payload;
+}
+async function checkDeviceIdUnique(deviceId, editingId) {
+  const current = (state.devicesPage.records || []).find((item) => String(item.deviceId || "") === String(deviceId));
+  if (current && String(current.id) !== String(editingId || "")) return true;
+  try {
+    const data = await apiRequest("/devices?page=1&pageSize=200&keyword=" + encodeURIComponent(deviceId));
+    const records = normalizePageResult(data, 1, 200).records || [];
+    return records.some((item) => String(item.deviceId || "") === String(deviceId) && String(item.id) !== String(editingId || ""));
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+}
+function renderDeviceStatsCards() {
+  const stats = state.deviceStats || {};
+  if (el("deviceStatTotal")) el("deviceStatTotal").textContent = String(stats.total || 0);
+  if (el("deviceStatOnline")) el("deviceStatOnline").textContent = String(stats.online || 0);
+  if (el("deviceStatOffline")) el("deviceStatOffline").textContent = String(stats.offline || 0);
+  if (el("deviceStatError")) el("deviceStatError").textContent = String(stats.error || 0);
+  if (el("deviceStatInactive")) el("deviceStatInactive").textContent = String(stats.inactive || 0);
+  if (el("deviceStatAvgBattery")) el("deviceStatAvgBattery").textContent = String(stats.avgBattery || 0) + "%";
+  document.querySelectorAll("[data-device-stat-filter]").forEach((node) => {
+    const filter = node.getAttribute("data-device-stat-filter") || "";
+    const active = filter === "AVG_BATTERY" ? state.deviceFilterAvgBattery : filter === state.deviceStatusQuickFilter;
+    node.classList.toggle("active", active || (!filter && !state.deviceStatusQuickFilter && !state.deviceFilterAvgBattery));
+  });
+}
+async function loadDeviceStats() {
+  try {
+    const stats = await apiRequest("/devices/stats");
+    state.deviceStats = stats || state.deviceStats;
+    renderDeviceStatsCards();
+  } catch (error) {
+    console.error(error);
+    showGlobalAlert("设备统计加载失败: " + error.message);
+  }
+}
+async function showDeviceDetail(id) {
+  try {
+    const item = await apiRequest("/devices/" + id);
+    openDetailModal("设备详情", [
+      { label: "设备名称", value: safeText(item.deviceName, "--") },
+      { label: "设备编号", value: safeText(item.deviceId, "--") },
+      { label: "设备型号", value: safeText(item.deviceModel, "--") },
+      { label: "固件版本", value: safeText(item.firmwareVersion, "--") },
+      { label: "设备状态", value: getDeviceStatusLabel(item.status) },
+      { label: "电量", value: safeText(item.battery, "--") + "%" },
+      { label: "信号强度", value: safeText(item.signalStrength, "--") + "%" },
+      { label: "楼栋", value: safeText(item.locationBuilding, "--") },
+      { label: "楼层", value: safeText(item.locationFloor, "--") },
+      { label: "房间", value: safeText(item.locationRoom, "--") },
+      { label: "心跳超时", value: safeText(item.heartbeatTimeout, "--") + " 秒" },
+      { label: "备注", value: safeText(item.remark, "--"), full: true },
+    ]);
+  } catch (error) {
+    showGlobalAlert("设备详情加载失败: " + error.message);
+  }
 }
 function showAlarmDetail(id) {
   const item = (state.alarmsPage.records || []).find((row) => String(row.id) === String(id));
@@ -381,7 +521,7 @@ function showAlarmDetail(id) {
 function renderDevicesTable() {
   const body = el("deviceTableBody");
   if (!body) return;
-  const rows = state.devicesPage.records || [];
+  const rows = getVisibleDeviceRecords();
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="10"><div class="empty-state"><strong>暂无设备</strong><p>当前筛选条件下没有设备记录，请调整筛选条件后重试。</p></div></td></tr>';
     updateDeviceBatchHint();
@@ -392,19 +532,31 @@ function renderDevicesTable() {
     const checked = state.selectedDeviceIds.includes(String(item.id)) ? 'checked' : '';
     return '<tr>' +
       '<td class="row-select"><input type="checkbox" data-device-check="true" data-id="' + escapeHtml(safeText(item.id, "")) + '" ' + checked + ' /></td>' +
-      '<td>' + escapeHtml(safeText(item.deviceName, item.deviceCode || "设备")) + '</td>' +
-      '<td>' + escapeHtml(safeText(item.deviceCode || item.deviceId, "--")) + '</td>' +
+      '<td>' + escapeHtml(safeText(item.deviceName, item.deviceId || "设备")) + '</td>' +
+      '<td><button type="button" class="device-code-link" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">' + escapeHtml(safeText(item.deviceId, "--")) + '</button></td>' +
       '<td>' + escapeHtml(safeText(item.locationBuilding || item.building, "--")) + '</td>' +
       '<td>' + escapeHtml(safeText(item.locationFloor || item.floor, "--")) + '</td>' +
-      '<td><span class="status-badge ' + deviceStatusClass(status) + '">' + escapeHtml(status) + '</span></td>' +
-      '<td>' + escapeHtml(safeText(item.latestSmoke, "--")) + '</td>' +
-      '<td>' + escapeHtml(safeText(item.latestTemp, "--")) + '</td>' +
-      '<td>' + escapeHtml(safeText(item.latestHumidity, "--")) + '</td>' +
-      '<td><button class="btn" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button></td>' +
+      '<td>' + escapeHtml(safeText(item.locationRoom, "--")) + '</td>' +
+      '<td><span class="status-badge ' + deviceStatusClass(status) + '">' + escapeHtml(getDeviceStatusLabel(status)) + '</span></td>' +
+      '<td>' + escapeHtml(safeText(item.battery, "--")) + '%</td>' +
+      '<td>' + escapeHtml(safeText(item.signalStrength, "--")) + '%</td>' +
+      '<td><div class="table-actions"><button class="btn" data-device-edit="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">编辑</button><button class="btn danger" data-device-delete="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">删除</button><button class="btn" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button></div></td>' +
       '</tr>';
   }).join("");
   body.querySelectorAll("input[data-device-check]").forEach((input) => input.addEventListener("change", () => toggleDeviceSelection(input.dataset.id, input.checked)));
   body.querySelectorAll("button[data-device-detail]").forEach((button) => button.addEventListener("click", () => showDeviceDetail(button.dataset.id)));
+  body.querySelectorAll("button[data-device-edit]").forEach((button) => button.addEventListener("click", async () => {
+    try {
+      const item = await apiRequest("/devices/" + button.dataset.id);
+      openDeviceFormModal("edit", item);
+    } catch (error) {
+      showGlobalAlert("设备信息加载失败: " + error.message);
+    }
+  }));
+  body.querySelectorAll("button[data-device-delete]").forEach((button) => button.addEventListener("click", async () => {
+    await deleteDevice(button.dataset.id);
+  }));
+  body.querySelectorAll("tr").forEach((row, index) => row.addEventListener("dblclick", () => showDeviceDetail(rows[index].id)));
   updateDeviceBatchHint();
 }
 function renderDevicePagination() {
@@ -485,7 +637,68 @@ function renderAlarmPagination() {
 
 async function batchDeleteDevices() {
   if (!state.selectedDeviceIds.length) return showGlobalAlert("请先选择要批量删除的设备");
-  showGlobalAlert("当前页面只做前端演示批量选择，未调用删除接口以避免越界");
+  if (!window.confirm("确认批量删除选中的 " + state.selectedDeviceIds.length + " 台设备吗？")) return;
+  await apiRequest("/devices/batch", {
+    method: "DELETE",
+    body: JSON.stringify({ ids: state.selectedDeviceIds.map((id) => Number(id)) }),
+  });
+  state.selectedDeviceIds = [];
+  await Promise.all([loadDeviceStats(), loadDevices(1), loadScreenData(), loadAnalysisData()]);
+  showGlobalAlert("批量删除成功");
+}
+async function deleteDevice(id) {
+  if (!window.confirm("确认删除这台设备吗？")) return;
+  await apiRequest("/devices/" + id, { method: "DELETE" });
+  state.selectedDeviceIds = state.selectedDeviceIds.filter((item) => item !== String(id));
+  await Promise.all([loadDeviceStats(), loadDevices(state.devicesPage.page || 1), loadScreenData(), loadAnalysisData()]);
+  showGlobalAlert("设备删除成功");
+}
+async function submitDeviceForm(event) {
+  event.preventDefault();
+  try {
+    const payload = await validateDeviceForm(true);
+    const isEdit = state.deviceFormMode === "edit" && state.editingDeviceId;
+    await apiRequest(isEdit ? "/devices/" + state.editingDeviceId : "/devices", {
+      method: isEdit ? "PUT" : "POST",
+      body: JSON.stringify(payload),
+    });
+    closeDeviceFormModal();
+    await Promise.all([loadDeviceStats(), loadDevices(isEdit ? state.devicesPage.page : 1), loadScreenData(), loadAnalysisData()]);
+    showGlobalAlert(isEdit ? "设备更新成功" : "设备新增成功");
+  } catch (error) {
+    setDeviceIdValidation(error.message.includes("设备编号") ? error.message : "", error.message.includes("设备编号") ? "error" : "");
+    showGlobalAlert(error.message);
+  }
+}
+function downloadDevicesCsv() {
+  const rows = (state.devicesPage.records || []).filter((item) => !state.deviceFilterAvgBattery || Number(item.battery || 0) <= Number(state.deviceStats.avgBattery || 0));
+  if (!rows.length) {
+    showGlobalAlert("当前没有可导出的设备数据");
+    return;
+  }
+  const header = ["设备名称", "设备编号", "设备型号", "设备状态", "楼栋", "楼层", "房间", "电量", "信号强度", "心跳超时", "备注"];
+  const lines = rows.map((item) => [
+    safeText(item.deviceName, ""),
+    safeText(item.deviceId, ""),
+    safeText(item.deviceModel, ""),
+    getDeviceStatusLabel(item.status),
+    safeText(item.locationBuilding, ""),
+    safeText(item.locationFloor, ""),
+    safeText(item.locationRoom, ""),
+    safeText(item.battery, ""),
+    safeText(item.signalStrength, ""),
+    safeText(item.heartbeatTimeout, ""),
+    safeText(item.remark, ""),
+  ]);
+  const csv = [header].concat(lines).map((cols) => cols.map((value) => '"' + String(value).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "devices-" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
 }
 async function batchHandleAlarms(action) {
   if (!state.selectedAlarmIds.length) return showGlobalAlert("请先选择要批量处理的告警");
@@ -723,15 +936,19 @@ async function loadAnalysisData() {
 }
 async function loadDevices(page = state.devicesPage.page || 1) {
   const keyword = safeText(el("deviceKeyword") && el("deviceKeyword").value, "").trim();
-  const status = safeText(el("deviceStatusFilter") && el("deviceStatusFilter").value, "").trim();
+  const building = safeText(el("deviceBuildingFilter") && el("deviceBuildingFilter").value, "").trim();
+  const status = state.deviceStatusQuickFilter || safeText(el("deviceStatusFilter") && el("deviceStatusFilter").value, "").trim();
+  if (el("deviceStatusFilter")) el("deviceStatusFilter").value = status;
   let query = "?page=" + page + "&pageSize=" + state.devicesPage.pageSize;
   if (keyword) query += "&keyword=" + encodeURIComponent(keyword);
+  if (building) query += "&building=" + encodeURIComponent(building);
   if (status) query += "&status=" + encodeURIComponent(status);
   try {
     const data = await apiRequest("/devices" + query);
     state.devicesPage = normalizePageResult(data, page, state.devicesPage.pageSize);
     renderDevicesTable();
     renderDevicePagination();
+    renderDeviceStatsCards();
     updateScreenDeviceSelect();
   } catch (error) {
     console.error(error);
@@ -770,7 +987,10 @@ function bindEvents() {
   const devicesRefresh = el("btnRefreshDevices");
   const aiRefresh = el("btnRefreshAi");
   const alarmsRefresh = el("btnRefreshAlarms");
+  const btnAddDevice = el("btnAddDevice");
   const btnSearchDevices = el("btnSearchDevices");
+  const btnResetDevices = el("btnResetDevices");
+  const btnExportDevices = el("btnExportDevices");
   const btnLoadAlarms = el("btnLoadAlarms");
   const btnSendQuestion = el("btnSendQuestion");
   const btnBroadcast = el("btnBroadcast");
@@ -787,17 +1007,32 @@ function bindEvents() {
   const alarmSelectAll = el("alarmSelectAll");
   const screenDeviceSelect = el("screenDeviceSelect");
   const chatInput = el("chatInput");
+  const deviceForm = el("deviceForm");
+  const deviceIdInput = el("formDeviceId");
+  const deviceKeyword = el("deviceKeyword");
+  const deviceBuildingFilter = el("deviceBuildingFilter");
 
   if (screenRefresh) screenRefresh.addEventListener("click", async () => { await loadScreenData(); await loadDevices(); });
   if (analysisRefresh) analysisRefresh.addEventListener("click", loadAnalysisData);
-  if (devicesRefresh) devicesRefresh.addEventListener("click", () => loadDevices(1));
+  if (devicesRefresh) devicesRefresh.addEventListener("click", async () => { await loadDeviceStats(); await loadDevices(1); });
   if (aiRefresh) aiRefresh.addEventListener("click", async () => { await loadHealthStatus(); await loadScreenData(); });
   if (alarmsRefresh) alarmsRefresh.addEventListener("click", () => loadAlarmRows(1));
+  if (btnAddDevice) btnAddDevice.addEventListener("click", () => openDeviceFormModal("create"));
   if (btnSearchDevices) btnSearchDevices.addEventListener("click", () => loadDevices(1));
+  if (btnResetDevices) btnResetDevices.addEventListener("click", () => {
+    state.deviceStatusQuickFilter = "";
+    state.deviceFilterAvgBattery = false;
+    if (deviceKeyword) deviceKeyword.value = "";
+    if (deviceBuildingFilter) deviceBuildingFilter.value = "";
+    if (el("deviceStatusFilter")) el("deviceStatusFilter").value = "";
+    loadDevices(1);
+    renderDeviceStatsCards();
+  });
+  if (btnExportDevices) btnExportDevices.addEventListener("click", downloadDevicesCsv);
   if (btnLoadAlarms) btnLoadAlarms.addEventListener("click", () => loadAlarmRows(1));
   if (btnSendQuestion) btnSendQuestion.addEventListener("click", sendQuestion);
   if (btnBroadcast) btnBroadcast.addEventListener("click", sendBroadcast);
-  if (btnSelectAllDevices) btnSelectAllDevices.addEventListener("click", () => { state.selectedDeviceIds = (state.devicesPage.records || []).map((item) => String(item.id)); renderDevicesTable(); });
+  if (btnSelectAllDevices) btnSelectAllDevices.addEventListener("click", () => { state.selectedDeviceIds = getVisibleDeviceRecords().map((item) => String(item.id)); renderDevicesTable(); });
   if (btnClearDevices) btnClearDevices.addEventListener("click", () => { state.selectedDeviceIds = []; renderDevicesTable(); });
   if (btnBatchDeleteDevices) btnBatchDeleteDevices.addEventListener("click", batchDeleteDevices);
   if (btnSelectAllAlarms) btnSelectAllAlarms.addEventListener("click", () => { state.selectedAlarmIds = (state.alarmsPage.records || []).map((item) => String(item.id)); renderAlarmTable(); });
@@ -806,10 +1041,34 @@ function bindEvents() {
   if (btnBatchResolveAlarms) btnBatchResolveAlarms.addEventListener("click", () => batchHandleAlarms("resolve"));
   if (btnBatchArchiveAlarms) btnBatchArchiveAlarms.addEventListener("click", () => batchHandleAlarms("archive"));
   if (btnBatchCloseAlarms) btnBatchCloseAlarms.addEventListener("click", () => batchHandleAlarms("close"));
-  if (deviceSelectAll) deviceSelectAll.addEventListener("change", () => { state.selectedDeviceIds = deviceSelectAll.checked ? (state.devicesPage.records || []).map((item) => String(item.id)) : []; renderDevicesTable(); });
+  if (deviceSelectAll) deviceSelectAll.addEventListener("change", () => { state.selectedDeviceIds = deviceSelectAll.checked ? getVisibleDeviceRecords().map((item) => String(item.id)) : []; renderDevicesTable(); });
   if (alarmSelectAll) alarmSelectAll.addEventListener("change", () => { state.selectedAlarmIds = alarmSelectAll.checked ? (state.alarmsPage.records || []).map((item) => String(item.id)) : []; renderAlarmTable(); });
   if (chatInput) chatInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendQuestion(); } });
   if (screenDeviceSelect) screenDeviceSelect.addEventListener("change", () => { state.selectedDeviceId = screenDeviceSelect.value; });
+  const deviceStatusFilter = el("deviceStatusFilter");
+  if (deviceStatusFilter) deviceStatusFilter.addEventListener("change", () => {
+    state.deviceStatusQuickFilter = deviceStatusFilter.value.trim();
+    state.deviceFilterAvgBattery = false;
+    renderDeviceStatsCards();
+  });
+  if (deviceForm) deviceForm.addEventListener("submit", submitDeviceForm);
+  if (deviceIdInput) deviceIdInput.addEventListener("blur", async () => {
+    const value = deviceIdInput.value.trim();
+    if (!value) return setDeviceIdValidation("", "");
+    if (!DEVICE_ID_REGEX.test(value)) return setDeviceIdValidation("设备编号仅支持 4-32 位字母、数字、下划线或中划线", "error");
+    const duplicated = await checkDeviceIdUnique(value, state.editingDeviceId);
+    setDeviceIdValidation(duplicated ? "设备编号已存在" : "设备编号可用", duplicated ? "error" : "ok");
+  });
+  [deviceKeyword, deviceBuildingFilter, deviceStatusFilter].forEach((node) => {
+    if (node) node.addEventListener("keydown", (event) => { if (event.key === "Enter") loadDevices(1); });
+  });
+  document.querySelectorAll("[data-device-stat-filter]").forEach((node) => node.addEventListener("click", () => {
+    const filter = node.getAttribute("data-device-stat-filter") || "";
+    state.deviceFilterAvgBattery = filter === "AVG_BATTERY";
+    state.deviceStatusQuickFilter = filter && filter !== "AVG_BATTERY" ? filter : "";
+    loadDevices(1);
+    renderDeviceStatsCards();
+  }));
   // 新 AI 视图按钮
   const btnClearChat = el("btnClearChat"); if (btnClearChat) btnClearChat.addEventListener("click", clearChat);
   const btnOpenLogDrawer = el("btnOpenLogDrawer"); if (btnOpenLogDrawer) btnOpenLogDrawer.addEventListener("click", openLogDrawer);
@@ -819,6 +1078,10 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     const modal = el("detailModal");
     if (modal && !modal.classList.contains("hidden") && event.target === modal.querySelector(".modal-mask")) closeDetailModal();
+    const formModal = el("deviceFormModal");
+    if (formModal && !formModal.classList.contains("hidden") && event.target === formModal.querySelector(".modal-mask")) closeDeviceFormModal();
+    if (event.target && event.target.matches && event.target.matches("[data-device-form-close='true']")) closeDeviceFormModal();
+    if (event.target && event.target.matches && event.target.matches("[data-modal-close='true']")) closeDetailModal();
   });
 }
 
@@ -831,6 +1094,10 @@ function initSidebarHover() {
 }
 
 async function bootstrap() {
+  if (!getToken()) {
+    clearAuthAndBackToLogin();
+    return;
+  }
   state.aiSessionId = buildSessionId();
   initMenus();
   bindEvents();
@@ -839,7 +1106,7 @@ async function bootstrap() {
   setInterval(setClock, 1000);
   connectWebSocket();
   await loadHealthStatus();
-  await Promise.all([loadDevices(1), loadScreenData(), loadAnalysisData(), loadAlarmRows(1)]);
+  await Promise.all([loadDeviceStats(), loadDevices(1), loadScreenData(), loadAnalysisData(), loadAlarmRows(1)]);
   renderAiJudgement();
   setInterval(async () => { await loadHealthStatus(); await loadScreenData(); }, 20000);
 }
