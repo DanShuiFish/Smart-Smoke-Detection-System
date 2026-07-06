@@ -19,10 +19,12 @@ import com.smartsmoke.service.SensorDataService;
 import com.smartsmoke.websocket.AlarmWebSocket;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import java.io.File;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Random;
 
 @Component
 public class AlarmRuleEngine {
@@ -102,7 +104,8 @@ public class AlarmRuleEngine {
 
         // 5. 如果级别 >= HIGH，调用 AI 视觉复核
         if ("HIGH".equals(alarmLevel) || "CRITICAL".equals(alarmLevel)) {
-            boolean hasFire = aiService.verifyFireVision("");
+            String imagePath = pickTestImage();
+            boolean hasFire = aiService.verifyFireVision(imagePath);
 
             AiReviewRecord review = new AiReviewRecord();
             review.setAlarmId(record.getId());
@@ -147,5 +150,24 @@ public class AlarmRuleEngine {
             }
             alarmRecordService.updateById(record);
         }
+    }
+
+    // ──────────────────────────────────────────────
+    // 模拟期：从 test-images 随机选图；真实硬件期替换为摄像头抓拍路径
+    // ──────────────────────────────────────────────
+    private static final String TEST_IMAGE_DIR = "./smart-smoke-models/test-images";
+    private static final Random RAND = new Random();
+
+    private String pickTestImage() {
+        File dir = new File(TEST_IMAGE_DIR);
+        if (dir.exists() && dir.isDirectory()) {
+            File[] files = dir.listFiles((d, name) ->
+                    name.endsWith(".jpg") || name.endsWith(".png"));
+            if (files != null && files.length > 0) {
+                return files[RAND.nextInt(files.length)].getAbsolutePath();
+            }
+        }
+        // 降级：如果找不到测试图片，传空串让 AiService 自行处理
+        return "";
     }
 }
