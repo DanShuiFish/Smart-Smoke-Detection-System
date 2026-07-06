@@ -1,0 +1,26 @@
+[
+  {
+    "device_id": 1,
+    "device_code": "SDS-001",
+    "device_name": "1号楼101烟感",
+    "building": "1号楼",
+    "floor": "1F",
+    "room": "101室"
+  },
+  {
+    "device_id": 2,
+    "device_code": "SDS-002",
+    "device_name": "1号楼301烟感",
+    "building": "1号楼",
+    "floor": "3F",
+    "room": "301室"
+  },
+  {
+    "device_id": 3,
+    "device_code": "SDS-003",
+    "device_name": "2号楼食堂烟感",
+    "building": "2号楼",
+    "floor": "1F",
+    "room": "食堂"
+  }
+]
