@@ -60,6 +60,10 @@ maxkb:
   application-id: ${MAXKB_APP_ID:019f2b03-6788-73a3-9ddf-555c3926a6fe}
   timeout: 30000
 
+smart-java-ai:
+  model-path: ${SMART_AI_MODEL_PATH:./smart-smoke-models}
+  threshold: 0.5
+
 logging:
   level:
     com.smartsmoke: debug

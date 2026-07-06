@@ -60,6 +60,12 @@
             <artifactId>org.eclipse.paho.client.mqttv3</artifactId>
             <version>1.2.5</version>
         </dependency>
+        <!-- SmartJavaAI 视觉检测（火焰/烟雾 YOLO 模型） -->
+        <dependency>
+            <groupId>cn.smartjavaai</groupId>
+            <artifactId>vision</artifactId>
+            <version>1.1.2</version>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
