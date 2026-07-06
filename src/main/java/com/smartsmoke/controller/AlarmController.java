@@ -14,7 +14,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/alarms")
@@ -33,6 +36,7 @@ public class AlarmController {
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String level,
             @RequestParam(required = false) Long deviceId,
+            @RequestParam(required = false) String deviceIds,
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end) {
         LambdaQueryWrapper<AlarmRecord> qw = new LambdaQueryWrapper<>();
@@ -40,6 +44,14 @@ public class AlarmController {
         if (type != null) qw.eq(AlarmRecord::getAlarmType, type);
         if (level != null) qw.eq(AlarmRecord::getAlarmLevel, level);
         if (deviceId != null) qw.eq(AlarmRecord::getDeviceId, deviceId);
+        if (deviceIds != null && !deviceIds.isEmpty()) {
+            List<Long> ids = Arrays.stream(deviceIds.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(Long::valueOf)
+                    .collect(Collectors.toList());
+            if (!ids.isEmpty()) qw.in(AlarmRecord::getDeviceId, ids);
+        }
         if (start != null) qw.ge(AlarmRecord::getAlarmTime, LocalDateTime.parse(start, DateTimeConst.FMT));
         if (end != null) qw.le(AlarmRecord::getAlarmTime, LocalDateTime.parse(end, DateTimeConst.FMT));
         qw.orderByDesc(AlarmRecord::getAlarmTime);
