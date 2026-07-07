@@ -274,15 +274,16 @@
               <form id="bindForm" class="device-form" novalidate>
                 <div class="device-form-grid">
                   <label class="form-field">
-                    <span>用户ID <span style="color:var(--danger);">*</span></span>
-                    <input id="bindUserId" name="userId" type="number" min="1" placeholder="输入用户主键ID" required />
+                    <span>选择用户 <span style="color:var(--danger);">*</span></span>
+                    <select id="bindUserId" name="userId" required>
+                      <option value="">-- 请选择用户 --</option>
+                    </select>
                   </label>
                   <label class="form-field">
                     <span>绑定类型</span>
                     <select id="bindBindType" name="bindType">
-                      <option value="OWNER">OWNER - 所有者</option>
-                      <option value="ADMIN">ADMIN - 管理员</option>
-                      <option value="VIEWER">VIEWER - 查看者</option>
+                      <option value="OWNER">管理者</option>
+                      <option value="VIEWER">使用者</option>
                     </select>
                   </label>
                   <label class="form-field form-field-full">
