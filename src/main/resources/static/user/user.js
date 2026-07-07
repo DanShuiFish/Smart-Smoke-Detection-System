@@ -450,11 +450,13 @@
               fontWeight: 500,
             },
           },
-        });
+        }, true);
         return;
       }
 
+      chart.clear();
       chart.setOption({
+        title: { show: false },
         tooltip: { trigger: 'axis' },
         grid: { left: 50, right: 20, top: 20, bottom: 40 },
         xAxis: {
@@ -482,7 +484,7 @@
           itemStyle: { color: '#2563eb' },
           symbol: 'none',
         }],
-      });
+      }, true);
 
       window.addEventListener('resize', () => chart.resize());
     } catch (err) {

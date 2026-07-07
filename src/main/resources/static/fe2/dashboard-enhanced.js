@@ -1,4 +1,4 @@
-const API_BASE = "/api/v1";
+﻿const API_BASE = "/api/v1";
 const state = {
   currentView: "screen",
   aiSessionId: "",
@@ -201,6 +201,46 @@ function getActiveAlarm() {
   if (active) return active;
   return state.analysis.alarmSample.find((item) => String(item.alarmStatus || "").toUpperCase() === "PENDING") || state.screen.alarmSample[0] || null;
 }
+
+function buildBroadcastDraft() {
+  const activeAlarm = getActiveAlarm();
+  if (activeAlarm) {
+    const area = buildAlarmLocation(activeAlarm) || "当前区域";
+    const levelText = formatAlarmLevel(activeAlarm.alarmLevel || "");
+    const typeText = formatAlarmType(activeAlarm.alarmType || "");
+    const metricText = formatAlarmMetric(activeAlarm);
+    return {
+      source: "alarm",
+      alarmId: activeAlarm.id != null ? Number(activeAlarm.id) : null,
+      deviceId: activeAlarm.deviceId != null ? Number(activeAlarm.deviceId) : null,
+      broadcastArea: area,
+      broadcastType: "EMERGENCY",
+      triggerMode: "ALARM_LINKAGE",
+      content: "【" + levelText + typeText + "通知】" + area + "发生" + typeText + "，" + metricText + "。请立即关注现场情况，必要时按疏散预案有序撤离。"
+    };
+  }
+  if (lastAiAnswer) {
+    return {
+      source: "ai",
+      alarmId: null,
+      deviceId: null,
+      broadcastArea: "",
+      broadcastType: "EMERGENCY",
+      triggerMode: "AI_MANUAL",
+      content: lastAiAnswer
+    };
+  }
+  return null;
+}
+
+function updateBroadcastButtonState() {
+  const btn = document.getElementById("btnBroadcast");
+  if (!btn) return;
+  const draft = buildBroadcastDraft();
+  btn.disabled = !draft;
+  btn.title = draft ? (draft.source === "alarm" ? "将基于当前活跃告警下发广播" : "将基于 AI 分析结论下发广播") : "暂无可下发的活跃告警或 AI 分析结论";
+}
+
 
 function setNavState(view) { document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.dataset.view === view)); }
 function switchView(view) {
@@ -983,7 +1023,7 @@ async function sendQuestion() {
     const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = aiRound;
     const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = answer.length ? Math.floor(answer.length * 1.5) : "—";
     // 启用广播按钮
-    const btn = el("btnBroadcast"); if (btn) btn.disabled = false;
+    updateBroadcastButtonState();
     addLog("success", "/api/v1/conversations", JSON.stringify({ question: question, answer: answer.substring(0, 100) + "..." }), 200, latency);
   } catch (error) {
     appendChat("ai", "大模型回复异常：" + error.message, true);
@@ -993,11 +1033,24 @@ async function sendQuestion() {
 }
 
 async function sendBroadcast() {
-  if (!lastAiAnswer) { showGlobalAlert("暂无 AI 分析结论可下发，请先进行对话"); return; }
-  if (!confirm("确认将 AI 分析结论作为广播指令下发到所有设备？\n\n分析摘要：" + lastAiAnswer.substring(0, 100) + "...")) return;
+  const draft = buildBroadcastDraft();
+  if (!draft) { showGlobalAlert("当前没有活跃告警且没有 AI 对话结论，暂无可下发的广播内容"); return; }
+  const preview = draft.content.length > 100 ? draft.content.substring(0, 100) + "..." : draft.content;
+  const prompt = draft.source === "alarm"
+    ? "确认将当前活跃告警联动为广播指令？\n\n广播区域：" + (draft.broadcastArea || "当前区域") + "\n广播内容：" + preview
+    : "确认将 AI 分析结论作为广播指令下发？\n\n分析摘要：" + preview;
+  if (!confirm(prompt)) return;
   try {
-    await apiRequest("/broadcasts", { method: "POST", body: JSON.stringify({ broadcastContent: lastAiAnswer, broadcastType: "EMERGENCY", triggerMode: "AI_MANUAL" }) });
-    showGlobalAlert("广播指令已下发");
+    const payload = {
+      alarmId: draft.alarmId,
+      deviceId: draft.deviceId,
+      broadcastArea: draft.broadcastArea,
+      broadcastContent: draft.content,
+      broadcastType: draft.broadcastType,
+      triggerMode: draft.triggerMode
+    };
+    await apiRequest("/broadcasts", { method: "POST", body: JSON.stringify(payload) });
+    showGlobalAlert(draft.source === "alarm" ? "已按当前活跃告警下发广播" : "已按 AI 分析结论下发广播");
     addLog("success", "/api/v1/broadcasts", "广播指令已下发", 200, 0);
   } catch (error) {
     showGlobalAlert("广播失败: " + error.message);
@@ -1017,7 +1070,7 @@ function clearChat() {
   const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = "0";
   const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = "—";
   renderAiJudgement();
-  const btn = el("btnBroadcast"); if (btn) btn.disabled = true;
+  updateBroadcastButtonState();
 }
 
 function bindQuickQs() {
@@ -1095,6 +1148,24 @@ function showRealtimeAlarmBanner(payload) {
   showRealtimeAlarmBanner.timer = setTimeout(() => node.classList.add("hidden"), 10000);
 }
 
+function showBroadcastBanner(payload) {
+  const node = el("globalAlert");
+  if (!node) return;
+  const area = safeText(payload.area || payload.broadcastArea, "当前区域");
+  const mode = payload.triggerMode === "AUTO" ? "自动" : (payload.triggerMode === "MANUAL" ? "手动" : "联动");
+  const typeLabel = payload.broadcastType === "EMERGENCY" ? "紧急广播" : (payload.broadcastType === "NOTIFICATION" ? "通知" : "广播");
+  const deviceName = safeText(payload.deviceName, "");
+  const summary = safeText(payload.message || payload.broadcastContent, "");
+  const timeStr = payload.time ? payload.time.substring(11, 19) : "";
+  node.innerHTML = '<div class="alert-banner danger">' +
+    '<div class="alert-banner-title">[广播] ' + escapeHtml(typeLabel) + ' | ' + escapeHtml(area) + (deviceName ? ' | ' + escapeHtml(deviceName) : '') + '</div>' +
+    '<div class="alert-banner-meta">触发方式: ' + escapeHtml(mode) + ' · 时间: ' + escapeHtml(timeStr) + '</div>' +
+    '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
+  node.classList.remove("hidden");
+  clearTimeout(showBroadcastBanner.timer);
+  showBroadcastBanner.timer = setTimeout(() => node.classList.add("hidden"), 15000);
+}
+
 async function loadHealthStatus() {
   try {
     const health = await apiRequest("/health");
@@ -1125,6 +1196,7 @@ async function loadScreenData() {
     renderScreenCharts();
     renderAiJudgement();
     setSyncTime();
+    updateBroadcastButtonState();
   } catch (error) {
     console.error(error);
     showGlobalAlert("大屏数据加载失败: " + error.message);
@@ -1141,6 +1213,7 @@ async function loadAnalysisData() {
     state.analysis.deviceStats = Array.isArray(deviceStats) ? deviceStats : [];
     state.analysis.alarmSample = normalizePageResult(alarmPage, 1, 100).records;
     renderAnalysisCharts();
+    updateBroadcastButtonState();
   } catch (error) {
     console.error(error);
     showGlobalAlert("数据分析加载失败: " + error.message);
@@ -1191,8 +1264,8 @@ function connectWebSocket() {
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
-        showRealtimeAlarmBanner(payload);
-        loadScreenData();
+        if (payload.kind === "broadcast") { showBroadcastBanner(payload); }
+        else { showRealtimeAlarmBanner(payload); }
         loadAnalysisData();
         loadAlarmRows(1);
       } catch (error) {
