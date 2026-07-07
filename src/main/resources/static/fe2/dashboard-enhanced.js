@@ -47,6 +47,16 @@ function clearAuthAndBackToLogin() {
   }
 }
 
+async function logout() {
+  try {
+    await apiRequest("/auth/logout", { method: "POST" });
+  } catch (error) {
+    console.warn("logout failed:", error);
+  } finally {
+    clearAuthAndBackToLogin();
+  }
+}
+
 async function apiRequest(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = getToken();
@@ -92,6 +102,54 @@ function normalizePageResult(payload, fallbackPage = 1, fallbackPageSize = 10) {
   const pages = Number(source.pages || Math.max(1, Math.ceil(total / Math.max(pageSize, 1))));
   return { page, pageSize, total, pages, records };
 }
+function formatAlarmType(type) {
+  const s = String(type || "").toUpperCase();
+  if (s === "SMOKE_OVERFLOW") return "烟雾超标";
+  if (s === "TEMP_OVERFLOW") return "温度异常";
+  if (s === "FIRE_RISK") return "复合火情";
+  if (s === "DEVICE_OFFLINE") return "设备离线";
+  if (s === "DEVICE_ERROR") return "设备故障";
+  return safeText(type, "告警");
+}
+function formatAlarmLevel(level) {
+  const s = String(level || "").toUpperCase();
+  if (s === "LOW") return "低";
+  if (s === "MEDIUM") return "中";
+  if (s === "HIGH") return "高";
+  if (s === "CRITICAL") return "紧急";
+  return safeText(level, "--");
+}
+function formatAlarmStatus(status) {
+  const s = String(status || "").toUpperCase();
+  if (s === "PENDING") return "待处理";
+  if (s === "CONFIRMING") return "确认中";
+  if (s === "CONFIRMED") return "已确认";
+  if (s === "RESOLVED") return "已处置";
+  if (s === "ARCHIVED") return "已归档";
+  if (s === "CLOSED") return "已关闭";
+  return safeText(status, "--");
+}
+function buildAlarmLocation(item) {
+  return [item.locationBuilding || item.building, item.locationFloor || item.floor, item.locationRoom || item.room]
+    .filter(Boolean)
+    .join("");
+}
+function formatAlarmMetric(item) {
+  const type = String(item.alarmType || "").toUpperCase();
+  const smoke = Number(item.smokeConcentration || item.smoke || 0);
+  const temp = Number(item.temperature || 0);
+  const threshold = Number(item.thresholdValue || 0);
+  if (type === "TEMP_OVERFLOW") {
+    return Number.isFinite(temp) && temp > 0 ? ("温度 " + temp.toFixed(1) + " C") : "温度异常";
+  }
+  if (Number.isFinite(smoke) && smoke > 0 && Number.isFinite(threshold) && threshold > 0) {
+    return "当前 " + smoke.toFixed(2) + " / 阈值 " + threshold.toFixed(2) + " mg/m3";
+  }
+  if (Number.isFinite(smoke) && smoke > 0) {
+    return "当前 " + smoke.toFixed(2) + " mg/m3";
+  }
+  return "等待更多数据";
+}
 function alarmStatusClass(status) {
   const s = String(status || "").toUpperCase();
   if (s === "PENDING" || s === "CONFIRMING") return "warn";
@@ -127,9 +185,14 @@ function renderChart(key, nodeId, option, hasData, emptyTitle, emptyDesc) {
   const node = el(nodeId);
   if (!node) return;
   if (!hasData) { disposeChart(key); renderEmptyState(node, emptyTitle, emptyDesc); return; }
-  node.innerHTML = "";
+  if (!charts[key]) {
+    node.innerHTML = "";
+  }
   const chart = ensureChart(key, nodeId);
-  if (chart) chart.setOption(option, true);
+  if (chart) {
+    chart.clear();
+    chart.setOption(option, true);
+  }
 }
 function resizeVisibleCharts() { Object.values(charts).forEach((chart) => { if (chart && typeof chart.resize === "function") chart.resize(); }); }
 function getActiveAlarm() {
@@ -211,7 +274,10 @@ function getScreenDeviceStatusData() {
 }
 function buildAlarmTypeSeries(rows) {
   const counts = {};
-  (rows || []).forEach((item) => { const name = safeText(item.alarmType || item.type || item.alarmName || "未分类"); counts[name] = (counts[name] || 0) + 1; });
+  (rows || []).forEach((item) => {
+    const name = formatAlarmType(item.alarmType || item.type || item.alarmName || "告警");
+    counts[name] = (counts[name] || 0) + 1;
+  });
   return Object.keys(counts).map((name) => ({ name, value: counts[name] }));
 }
 function buildHeatmapData(points, alarms) {
@@ -240,7 +306,11 @@ function renderScreenAlarmList() {
   if (!rows.length) { renderEmptyState(list, "暂无告警", "当前没有可展示的活跃告警数据。请稍后刷新或检查后端数据。"); return; }
   list.innerHTML = rows.map((item) => {
     const levelClass = alarmLevelClass(item.alarmLevel);
-    return '<li class="list-item alarm-card ' + levelClass + '"><div class="card-row"><strong>' + escapeHtml(safeText(item.alarmType, "告警")) + '</strong><span class="status-badge ' + alarmStatusClass(item.alarmStatus) + '">' + escapeHtml(safeText(item.alarmStatus, "--")) + '</span></div><div style="margin-top:6px;color:#64748b;">设备: ' + escapeHtml(safeText(item.deviceId, "--")) + ' · 楼栋: ' + escapeHtml(safeText(item.locationBuilding || item.building, "--")) + '</div></li>';
+    const location = buildAlarmLocation(item);
+    return '<li class="list-item alarm-card ' + levelClass + '">' +
+      '<div class="card-row"><strong>' + escapeHtml(formatAlarmType(item.alarmType)) + '</strong><span class="status-badge ' + alarmStatusClass(item.alarmStatus) + '">' + escapeHtml(formatAlarmStatus(item.alarmStatus)) + '</span></div>' +
+      '<div style="margin-top:6px;color:#64748b;">设备: ' + escapeHtml(safeText(item.deviceName || item.deviceId, "--")) + (location ? ' · 位置: ' + escapeHtml(location) : '') + '</div>' +
+      '<div style="margin-top:4px;color:#94a3b8;">' + escapeHtml(formatAlarmMetric(item)) + '</div></li>';
   }).join("");
 }
 function renderScreenCharts() {
@@ -1007,6 +1077,24 @@ function showGlobalAlert(text) {
   showGlobalAlert.timer = setTimeout(() => node.classList.add("hidden"), 4000);
 }
 
+function showRealtimeAlarmBanner(payload) {
+  const node = el("globalAlert");
+  if (!node) return;
+  const levelClass = alarmLevelClass(payload.alarmLevel);
+  const title = formatAlarmLevel(payload.alarmLevel) + "级" + formatAlarmType(payload.alarmType || payload.alarmTypeText);
+  const deviceName = safeText(payload.deviceName || payload.deviceId, "未知设备");
+  const location = [payload.building, payload.floor, payload.room].filter(Boolean).join("");
+  const metric = formatAlarmMetric(payload);
+  const summary = safeText(payload.message, metric);
+  node.innerHTML = '<div class="alert-banner ' + levelClass + '">' +
+    '<div class="alert-banner-title">' + escapeHtml(title) + ' | ' + escapeHtml(deviceName) + '</div>' +
+    '<div class="alert-banner-meta">' + (location ? ('位置: ' + escapeHtml(location) + ' · ') : '') + '状态: ' + escapeHtml(formatAlarmStatus(payload.alarmStatus)) + ' · ' + escapeHtml(metric) + '</div>' +
+    '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
+  node.classList.remove("hidden");
+  clearTimeout(showRealtimeAlarmBanner.timer);
+  showRealtimeAlarmBanner.timer = setTimeout(() => node.classList.add("hidden"), 10000);
+}
+
 async function loadHealthStatus() {
   try {
     const health = await apiRequest("/health");
@@ -1100,7 +1188,17 @@ function connectWebSocket() {
     const socket = new WebSocket(wsUrl);
     socket.onopen = () => setChip("wsStatus", "WebSocket: 已连接", "ok");
     socket.onclose = () => setChip("wsStatus", "WebSocket: 已断开", "warn");
-    socket.onmessage = (event) => showGlobalAlert("实时告警: " + event.data);
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        showRealtimeAlarmBanner(payload);
+        loadScreenData();
+        loadAnalysisData();
+        loadAlarmRows(1);
+      } catch (error) {
+        showGlobalAlert("实时告警: " + event.data);
+      }
+    };
   } catch (error) {
     setChip("wsStatus", "WebSocket: 不可用", "warn");
   }
@@ -1128,6 +1226,7 @@ function bindEvents() {
   const btnBatchResolveAlarms = el("btnBatchResolveAlarms");
   const btnBatchArchiveAlarms = el("btnBatchArchiveAlarms");
   const btnBatchCloseAlarms = el("btnBatchCloseAlarms");
+  const btnLogout = el("btnLogout");
   const deviceSelectAll = el("deviceSelectAll");
   const alarmSelectAll = el("alarmSelectAll");
   const screenDeviceSelect = el("screenDeviceSelect");
@@ -1157,6 +1256,7 @@ function bindEvents() {
   if (btnLoadAlarms) btnLoadAlarms.addEventListener("click", () => loadAlarmRows(1));
   if (btnSendQuestion) btnSendQuestion.addEventListener("click", sendQuestion);
   if (btnBroadcast) btnBroadcast.addEventListener("click", sendBroadcast);
+  if (btnLogout) btnLogout.addEventListener("click", logout);
   if (btnSelectAllDevices) btnSelectAllDevices.addEventListener("click", () => { state.selectedDeviceIds = getVisibleDeviceRecords().map((item) => String(item.id)); renderDevicesTable(); });
   if (btnClearDevices) btnClearDevices.addEventListener("click", () => { state.selectedDeviceIds = []; renderDevicesTable(); });
   if (btnBatchDeleteDevices) btnBatchDeleteDevices.addEventListener("click", batchDeleteDevices);

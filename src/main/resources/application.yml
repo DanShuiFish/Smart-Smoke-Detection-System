@@ -63,7 +63,7 @@ logging:
     com.smartsmoke: debug
 
 maxkb:
-  base-url: ${MAXKB_BASE_URL:http://192.168.72.129:8080/chat/api}
+  base-url: ${MAXKB_BASE_URL:http://10.69.98.60:8080/chat/api}
   api-key: ${MAXKB_API_KEY:agent-f80381fc92fdbbfd9ea75940b7ca5c18}
   application-id: ${MAXKB_APP_ID:019f2b03-6788-73a3-9ddf-555c3926a6fe}
   timeout: 30000

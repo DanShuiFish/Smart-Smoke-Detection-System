@@ -13,6 +13,7 @@
   let currentView = 'dashboard';
   let refreshTimer = null;
   let chatSessionId = null;
+  let dashboardRefreshing = false;
 
   // ===== DOM 缓存 =====
   const $ = (sel) => document.querySelector(sel);
@@ -42,6 +43,7 @@
     // 初始化 UI
     updateUserUI();
     await loadMyDeviceIds();
+    setupSidebarInteraction();
     setupNavigation();
     setupModals();
     setupProfileForms();
@@ -64,7 +66,7 @@
     if (resp.status === 401) {
       localStorage.removeItem('smoke_token');
       localStorage.removeItem('smoke_user');
-      window.location.href = '/login.html';
+      window.location.href = '/';
       return { code: 401 };
     }
     return resp.json();
@@ -79,7 +81,7 @@
     if (resp.status === 401) {
       localStorage.removeItem('smoke_token');
       localStorage.removeItem('smoke_user');
-      window.location.href = '/login.html';
+      window.location.href = '/';
       return { code: 401 };
     }
     return resp.json();
@@ -94,7 +96,7 @@
     if (resp.status === 401) {
       localStorage.removeItem('smoke_token');
       localStorage.removeItem('smoke_user');
-      window.location.href = '/login.html';
+      window.location.href = '/';
       return { code: 401 };
     }
     return resp.json();
@@ -106,6 +108,68 @@
     const name = currentUser.realName || currentUser.username;
     $('#userName').textContent = name;
     $('#userAvatar').textContent = name.charAt(0).toUpperCase();
+  }
+
+  function updateViewHeading(title, sub) {
+    $('#viewTitle').textContent = title;
+    $('#viewSubTitle').innerHTML = `${escapeHtml(sub)} <span class="endpoint-badge resident">居民端</span>`;
+  }
+
+  function updateRuntimeMeta() {
+    const now = new Date();
+    const timeText = formatTime(now);
+    $('#clock').textContent = timeText;
+    $('#footerSyncTime').textContent = '最后同步: ' + timeText;
+    $('#systemLastSync').textContent = '最近同步: ' + timeText;
+  }
+
+  function hideGlobalAlert() {
+    const node = $('#globalAlert');
+    if (!node) return;
+    node.classList.add('hidden');
+    node.innerHTML = '';
+  }
+
+  function buildAlarmLocation(item) {
+    return [item.locationBuilding || item.building, item.locationFloor || item.floor, item.locationRoom || item.room]
+      .filter(Boolean)
+      .join('');
+  }
+
+  function formatAlarmMetric(item) {
+    const type = String(item.alarmType || '').toUpperCase();
+    const smoke = Number(item.smokeConcentration || item.smoke || 0);
+    const temp = Number(item.temperature || 0);
+    const threshold = Number(item.thresholdValue || 0);
+    if (type === 'TEMP_OVERFLOW') {
+      return Number.isFinite(temp) && temp > 0 ? ('温度 ' + temp.toFixed(1) + ' C') : '温度异常';
+    }
+    if (Number.isFinite(smoke) && smoke > 0 && Number.isFinite(threshold) && threshold > 0) {
+      return '当前 ' + smoke.toFixed(2) + ' / 阈值 ' + threshold.toFixed(2) + ' mg/m3';
+    }
+    if (Number.isFinite(smoke) && smoke > 0) {
+      return '当前 ' + smoke.toFixed(2) + ' mg/m3';
+    }
+    return '等待更多数据';
+  }
+
+  function showRealtimeAlarmBanner(payload) {
+    const node = $('#globalAlert');
+    if (!node) return;
+    const levelLabel = { LOW: '低', MEDIUM: '中', HIGH: '高', CRITICAL: '紧急' }[String(payload.alarmLevel || '').toUpperCase()] || '--';
+    const levelClass = alarmLevelClass(payload.alarmLevel);
+    const title = levelLabel + '级' + alarmTypeLabel(payload.alarmType || payload.alarmTypeText);
+    const deviceName = payload.deviceName || payload.deviceId || '未知设备';
+    const location = buildAlarmLocation(payload);
+    const metric = formatAlarmMetric(payload);
+    const summary = payload.message || metric;
+    node.innerHTML = '<div class="alert-banner ' + levelClass + '">' +
+      '<div class="alert-banner-title">' + escapeHtml(title) + ' | ' + escapeHtml(deviceName) + '</div>' +
+      '<div class="alert-banner-meta">' + (location ? ('位置: ' + escapeHtml(location) + ' · ') : '') + '状态: ' + escapeHtml(formatAlarmStatusText(payload.alarmStatus)) + ' · ' + escapeHtml(metric) + '</div>' +
+      '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
+    node.classList.remove('hidden');
+    clearTimeout(showRealtimeAlarmBanner.timer);
+    showRealtimeAlarmBanner.timer = setTimeout(() => node.classList.add('hidden'), 10000);
   }
 
   // ===== 获取我的设备 ID =====
@@ -131,6 +195,20 @@
     });
   }
 
+  function setupSidebarInteraction() {
+    const sidebar = document.querySelector('.sidebar');
+    const layout = document.querySelector('.app-layout');
+    if (!sidebar || !layout || window.innerWidth <= 900) return;
+
+    sidebar.addEventListener('mouseenter', function () {
+      layout.classList.add('sidebar-expanded');
+    });
+
+    sidebar.addEventListener('mouseleave', function () {
+      layout.classList.remove('sidebar-expanded');
+    });
+  }
+
   function showView(viewName) {
     currentView = viewName;
     $$('.view').forEach(v => v.classList.remove('active'));
@@ -146,8 +224,7 @@
       profile: ['个人中心', '管理个人信息与密码'],
     };
     const [title, sub] = titles[viewName] || ['', ''];
-    $('#viewTitle').textContent = title;
-    $('#viewSubTitle').textContent = sub;
+    updateViewHeading(title, sub);
 
     // 渲染视图
     switch (viewName) {
@@ -193,29 +270,62 @@
       $('#kpiOnlineDevices').textContent = onlineDevices;
       $('#kpiTodayAlarms').textContent = todayAlarms;
       $('#kpiPendingAlarms').textContent = pendingAlarms;
+      $('#residentDeviceSummary').textContent = '我的设备: ' + totalDevices;
+      $('#activeAlarmStatus').textContent = '待处理告警: ' + pendingAlarms;
 
       // 填充设备选择器
       const deviceSelect = $('#dashDeviceSelect');
       deviceSelect.innerHTML = '<option value="">选择设备</option>';
       const devRecords = devResp.data?.records || [];
+      const deviceMap = new Map(devRecords.map(d => [String(d.id), d]));
       devRecords.forEach(d => {
         deviceSelect.innerHTML += `<option value="${d.id}">${d.deviceName || d.deviceId}</option>`;
+      });
+
+      const trendSelect = $('#trendDeviceSelect');
+      trendSelect.innerHTML = '<option value="">选择设备查看趋势</option>';
+      devRecords.forEach(d => {
+        trendSelect.innerHTML += `<option value="${d.id}">${d.deviceName || d.deviceId}</option>`;
       });
 
       // 默认选中第一台设备
       if (devRecords.length > 0) {
         deviceSelect.value = devRecords[0].id;
         await loadRealtimeData(devRecords[0].id);
+        trendSelect.value = devRecords[0].id;
+        loadTrendChart(devRecords[0].id);
       }
 
-      deviceSelect.addEventListener('change', async function () {
+      deviceSelect.onchange = async function () {
         if (this.value) {
           await loadRealtimeData(this.value);
         }
-      });
+      };
+
+      trendSelect.onchange = function () {
+        if (this.value) {
+          loadTrendChart(this.value);
+        }
+      };
 
       // 最近告警
-      renderRecentAlarms(alarmResp.data?.records || []);
+      const alarmRecords = alarmResp.data?.records || [];
+      renderRecentAlarms(alarmRecords);
+
+      const activeAlarm = alarmRecords.find(a => a.alarmStatus === 'PENDING' || a.alarmStatus === 'CONFIRMING' || a.alarmStatus === 'CONFIRMED');
+      if (activeAlarm) {
+        const device = deviceMap.get(String(activeAlarm.deviceId)) || {};
+        showRealtimeAlarmBanner({
+          ...device,
+          ...activeAlarm,
+          building: activeAlarm.building || device.locationBuilding,
+          floor: activeAlarm.floor || device.locationFloor,
+          room: activeAlarm.room || device.locationRoom,
+          deviceName: activeAlarm.deviceName || device.deviceName || device.deviceId,
+        });
+      } else {
+        hideGlobalAlert();
+      }
 
     } catch (err) {
       console.error('仪表盘渲染失败:', err);
@@ -285,29 +395,13 @@
       // 分页
       renderPagination('devicePagination', page, pageData.pages || 1, pageData.total || 0, renderDevices);
 
-      // 填充趋势图设备选择器
-      const trendSelect = $('#trendDeviceSelect');
-      trendSelect.innerHTML = '<option value="">选择设备查看趋势</option>';
-      devices.forEach(d => {
-        trendSelect.innerHTML += `<option value="${d.id}">${d.deviceName || d.deviceId}</option>`;
-      });
-      trendSelect.addEventListener('change', function () {
-        if (this.value) loadTrendChart(this.value);
-      });
-
-      // 默认第一台
-      if (devices.length > 0) {
-        trendSelect.value = devices[0].id;
-        loadTrendChart(devices[0].id);
-      }
-
     } catch (err) {
       console.error('设备列表渲染失败:', err);
     }
   }
 
   window.showDeviceTrend = function (deviceId) {
-    showView('devices');
+    showView('dashboard');
     setTimeout(() => {
       $('#trendDeviceSelect').value = deviceId;
       loadTrendChart(deviceId);
@@ -327,14 +421,38 @@
       // DataController.history 返回 PageResult，取 records 数组
       const pageData = resp.data || {};
       const data = pageData.records || [];
-      const times = data.map(d => d.collectTime || d.createTime || '').map(t => t.substring(11, 19));
-      const smokeValues = data.map(d => d.smokeConcentration != null ? Number(d.smokeConcentration) : null).filter(v => v != null);
+      const points = data
+        .map(d => ({
+          time: (d.collectTime || d.createTime || '').substring(11, 19),
+          smoke: d.smokeConcentration != null ? Number(d.smokeConcentration) : null,
+        }))
+        .filter(item => item.time && item.smoke != null && !Number.isNaN(item.smoke));
+
+      const times = points.map(item => item.time);
+      const smokeValues = points.map(item => item.smoke);
 
       const chartDom = $('#chartTrend');
       if (!chartDom) return;
 
       let chart = echarts.getInstanceByDom(chartDom);
       if (!chart) chart = echarts.init(chartDom);
+
+      if (smokeValues.length === 0) {
+        chart.clear();
+        chart.setOption({
+          title: {
+            text: '最近24小时暂无烟雾数据',
+            left: 'center',
+            top: 'middle',
+            textStyle: {
+              color: '#64748b',
+              fontSize: 14,
+              fontWeight: 500,
+            },
+          },
+        });
+        return;
+      }
 
       chart.setOption({
         tooltip: { trigger: 'axis' },
@@ -720,19 +838,35 @@
     await apiPost('/auth/logout', {});
     localStorage.removeItem('smoke_token');
     localStorage.removeItem('smoke_user');
-    window.location.href = '/login.html';
+    window.location.href = '/';
   });
 
   // ===== 自动刷新 =====
   function startAutoRefresh() {
+    refreshDashboardImmediately();
     refreshTimer = setInterval(() => {
-      if (currentView === 'dashboard') {
-        loadMyDeviceIds().then(() => renderDashboard());
-      }
-      // 更新时间戳
-      const now = new Date();
-      $('#footerSyncTime').textContent = '最后同步: ' + formatTime(now);
+      refreshDashboardImmediately();
     }, 20000); // 每20秒刷新
+
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) {
+        refreshDashboardImmediately();
+      }
+    });
+  }
+
+  async function refreshDashboardImmediately() {
+    updateRuntimeMeta();
+    if (currentView !== 'dashboard' || dashboardRefreshing) {
+      return;
+    }
+    dashboardRefreshing = true;
+    try {
+      await loadMyDeviceIds();
+      await renderDashboard();
+    } finally {
+      dashboardRefreshing = false;
+    }
   }
 
   // ===== 工具函数 =====
@@ -743,7 +877,7 @@
     const h = String(date.getHours()).padStart(2, '0');
     const min = String(date.getMinutes()).padStart(2, '0');
     const s = String(date.getSeconds()).padStart(2, '0');
-    return `${y}-${m}-${d} ${h}:${min}:${s}`;
+    return `${y}-${m}-${d}T${h}:${min}:${s}`;
   }
 
   function formatTime(date) {
@@ -767,6 +901,11 @@
   function alarmStatusClass(status) {
     const map = { 'PENDING': 'danger', 'CONFIRMING': 'warn', 'CONFIRMED': 'warn', 'RESOLVED': 'info', 'ARCHIVED': 'ok', 'CLOSED': 'info' };
     return map[status] || 'info';
+  }
+
+  function formatAlarmStatusText(status) {
+    const map = { 'PENDING': '待处理', 'CONFIRMING': '确认中', 'CONFIRMED': '已确认', 'RESOLVED': '已处置', 'ARCHIVED': '已归档', 'CLOSED': '已关闭' };
+    return map[status] || status || '--';
   }
 
   function alarmLevelClass(level) {

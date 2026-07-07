@@ -98,8 +98,9 @@ public class AlarmRuleEngine {
         record.setAlarmTime(LocalDateTime.now());
         alarmRecordService.save(record);
 
-        // 4. 推 WebSocket 到前端大屏（按设备归属推送，居民只收自己绑定设备的告警）
-        AlarmWebSocket.broadcastByDevice(data.getDeviceId(), JSONUtil.toJsonStr(record));
+        // 4. 推 WebSocket 到前端大屏
+        String wsMsg = JSONUtil.toJsonStr(record);
+        AlarmWebSocket.broadcast(wsMsg);
 
         // 5. 如果级别 >= HIGH，调用 AI 视觉复核
         if ("HIGH".equals(alarmLevel) || "CRITICAL".equals(alarmLevel)) {
