@@ -107,8 +107,17 @@ public class AlarmRuleEngine {
     }
 
     private void runAiReviewAndBroadcast(AlarmRecord record, SensorData data) {
+        long startTime = System.currentTimeMillis();
         String imagePath = pickTestImage();
         boolean hasFire = aiService.verifyFireVision(imagePath);
+        long elapsed = System.currentTimeMillis() - startTime;
+
+        // 提取文件名（不含路径），用于前端展示
+        String fileName = "";
+        if (imagePath != null && !imagePath.isEmpty()) {
+            File imgFile = new File(imagePath);
+            fileName = imgFile.getName();
+        }
 
         AiReviewRecord review = new AiReviewRecord();
         review.setAlarmId(record.getId());
@@ -116,6 +125,9 @@ public class AlarmRuleEngine {
         review.setReviewType("SMOKE_FIRE");
         review.setReviewResult(hasFire ? "FIRE_CONFIRMED" : "NO_FIRE");
         review.setConfidence(hasFire ? BigDecimal.valueOf(85.00) : BigDecimal.ZERO);
+        review.setImageUrl(fileName);
+        review.setProcessingTimeMs((int) elapsed);
+        review.setAiRawResponse("{\"model\":\"YOLOv8n-ONNX\",\"fireDetected\":" + hasFire + ",\"processingTimeMs\":" + elapsed + ",\"imageFile\":\"" + fileName + "\"}");
         review.setCreateTime(LocalDateTime.now());
         aiReviewRecordMapper.insert(review);
 

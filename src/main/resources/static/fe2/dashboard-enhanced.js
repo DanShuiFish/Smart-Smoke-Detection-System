@@ -522,7 +522,10 @@ function openDetailModal(title, rows) {
   const body = el("detailModalBody");
   if (!modal || !heading || !body) return;
   heading.textContent = title;
-  body.innerHTML = '<div class="detail-grid">' + rows.map((item) => item.full ? '<div class="detail-item detail-full"><span>' + escapeHtml(item.label) + '</span><strong>' + escapeHtml(item.value) + '</strong></div>' : '<div class="detail-item"><span>' + escapeHtml(item.label) + '</span><strong>' + escapeHtml(item.value) + '</strong></div>').join("") + '</div>';
+  body.innerHTML = '<div class="detail-grid">' + rows.map((item) => {
+    var valueHtml = item.raw ? item.value : escapeHtml(item.value);
+    return item.full ? '<div class="detail-item detail-full"><span>' + escapeHtml(item.label) + '</span><strong>' + valueHtml + '</strong></div>' : '<div class="detail-item"><span>' + escapeHtml(item.label) + '</span><strong>' + valueHtml + '</strong></div>';
+  }).join("") + '</div>';
   modal.classList.remove("hidden");
 }
 function closeDetailModal() { const modal = el("detailModal"); if (modal) modal.classList.add("hidden"); }
@@ -1431,7 +1434,8 @@ function renderReviewPagination() {
 async function showReviewDetail(id) {
   try {
     var item = await apiRequest("/ai-reviews/" + id);
-    openDetailModal("AI复核详情 #" + id, [
+    // 构建 AI 复核详情行
+    var reviewRows = [
       { label: "复核ID", value: safeText(item.id, "--") },
       { label: "关联告警ID", value: safeText(item.alarmId, "--") },
       { label: "设备ID", value: safeText(item.deviceId, "--") },
@@ -1439,15 +1443,23 @@ async function showReviewDetail(id) {
       { label: "复核类型", value: safeText(item.reviewType, "--") },
       { label: "AI判定结果", value: formatReviewResult(item.reviewResult) },
       { label: "置信度", value: item.confidence != null ? Number(item.confidence).toFixed(1) + "%" : "--" },
-      { label: "图像路径", value: safeText(item.imageUrl, "--") },
       { label: "处理耗时", value: item.processingTimeMs != null ? item.processingTimeMs + " ms" : "--" },
       { label: "人工复核状态", value: formatManualReview(item.isManualReview, item.manualReviewResult) },
       { label: "人工复核人ID", value: safeText(item.manualReviewUserId, "--") },
       { label: "人工复核结果", value: safeText(item.manualReviewResult, "--") },
       { label: "备注", value: safeText(item.remark, "--") },
+    ];
+    // 原图展示（若 imageUrl 不为空）
+    if (item.imageUrl) {
+      var imgSrc = "/" + item.imageUrl;
+      reviewRows.push({ label: "原图", value: '<img src="' + imgSrc + '" alt="复核原图" style="max-width:100%;max-height:360px;border-radius:8px;margin-top:4px;" onerror="this.parentElement.innerHTML=\'&lt;span style=color:#94a3b8&gt;图片加载失败: ' + escapeHtml(item.imageUrl) + '&lt;/span&gt;\'" />', full: true, raw: true });
+    }
+    reviewRows.push(
+      { label: "图像文件名", value: safeText(item.imageUrl, "--") },
       { label: "AI原始响应", value: safeText(item.aiRawResponse || "无", "无"), full: true },
-      { label: "创建时间", value: safeText(item.createTime, "--") },
-    ]);
+      { label: "创建时间", value: safeText(item.createTime, "--") }
+    );
+    openDetailModal("AI复核详情 #" + id, reviewRows);
   } catch (error) {
     showGlobalAlert("AI复核详情加载失败: " + error.message);
   }
@@ -1482,6 +1494,7 @@ function connectWebSocket() {
         else { showRealtimeAlarmBanner(payload); }
         loadAnalysisData();
         loadAlarmRows(1);
+        loadReviewRows(1);
       } catch (error) {
         showGlobalAlert("实时告警: " + event.data);
       }
