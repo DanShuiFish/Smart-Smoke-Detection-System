@@ -10,7 +10,7 @@ const state = {
   deviceStats: { total: 0, online: 0, offline: 0, error: 0, inactive: 0, avgBattery: 0 },
   deviceFormMode: "create",
   editingDeviceId: "",
-  screen: { stats: {}, realtime: {}, alarmSample: [] },
+  screen: { stats: {}, realtime: {}, alarmSample: [], deviceTrend: [] },
   analysis: { alarmTrend: [], alarmSample: [], deviceStats: [] },
   devicesPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   alarmsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
@@ -91,6 +91,16 @@ function setSyncTime() {
   setChip("systemLastSync", "最近同步: " + now);
   const footer = el("footerSyncTime");
   if (footer) footer.textContent = "最后同步: " + now;
+}
+
+function formatLocalDateTimeParam(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return date.getFullYear() + "-"
+    + pad(date.getMonth() + 1) + "-"
+    + pad(date.getDate()) + "T"
+    + pad(date.getHours()) + ":"
+    + pad(date.getMinutes()) + ":"
+    + pad(date.getSeconds());
 }
 
 function normalizePageResult(payload, fallbackPage = 1, fallbackPageSize = 10) {
@@ -288,7 +298,8 @@ function renderScreenKpi() {
 }
 function renderLatestMetrics() {
   const realtime = state.screen.realtime || {};
-  const latestList = Array.isArray(realtime.latestData) ? realtime.latestData : [];
+  const trendList = Array.isArray(state.screen.deviceTrend) ? state.screen.deviceTrend : [];
+  const latestList = trendList.length ? trendList : (Array.isArray(realtime.latestData) ? realtime.latestData : []);
   const latest = latestList.length ? latestList[latestList.length - 1] : null;
   const smoke = Number(latest && (latest.smoke || latest.smokeValue || latest.smokeConcentration) || 0);
   const temp = Number(latest && (latest.temperature || latest.tempValue) || 0);
@@ -355,7 +366,8 @@ function renderScreenAlarmList() {
 }
 function renderScreenCharts() {
   const realtime = state.screen.realtime || {};
-  const latestData = Array.isArray(realtime.latestData) ? realtime.latestData : [];
+  const deviceTrend = Array.isArray(state.screen.deviceTrend) ? state.screen.deviceTrend : [];
+  const latestData = deviceTrend.length ? deviceTrend : (Array.isArray(realtime.latestData) ? realtime.latestData : []);
   const xAxis = latestData.map((item, index) => safeText(item.createTime || item.time || item.timestamp || index + 1, ""));
   const smokeSeries = latestData.map((item) => Number(item.smoke || item.smokeValue || item.smokeConcentration || 0));
   const tempSeries = latestData.map((item) => Number(item.temperature || item.tempValue || 0));
@@ -1202,6 +1214,35 @@ async function loadScreenData() {
     showGlobalAlert("大屏数据加载失败: " + error.message);
   }
 }
+
+async function loadSelectedDeviceTrend() {
+  const deviceId = String(state.selectedDeviceId || "").trim();
+  if (!deviceId) {
+    state.screen.deviceTrend = [];
+    renderLatestMetrics();
+    renderScreenCharts();
+    return;
+  }
+
+  const end = new Date();
+  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  const query = "/data/history/" + encodeURIComponent(deviceId)
+    + "?start=" + encodeURIComponent(formatLocalDateTimeParam(start))
+    + "&end=" + encodeURIComponent(formatLocalDateTimeParam(end))
+    + "&page=1&pageSize=500";
+
+  try {
+    const data = await apiRequest(query);
+    state.screen.deviceTrend = normalizePageResult(data, 1, 500).records || [];
+  } catch (error) {
+    console.error(error);
+    state.screen.deviceTrend = [];
+    showGlobalAlert("设备趋势加载失败: " + error.message);
+  }
+
+  renderLatestMetrics();
+  renderScreenCharts();
+}
 async function loadAnalysisData() {
   try {
     const [alarmTrend, deviceStats, alarmPage] = await Promise.all([
@@ -1235,6 +1276,9 @@ async function loadDevices(page = state.devicesPage.page || 1) {
     renderDevicePagination();
     renderDeviceStatsCards();
     updateScreenDeviceSelect();
+    if (state.selectedDeviceId) {
+      await loadSelectedDeviceTrend();
+    }
   } catch (error) {
     console.error(error);
     showGlobalAlert("设备数据加载失败: " + error.message);
@@ -1309,7 +1353,7 @@ function bindEvents() {
   const deviceKeyword = el("deviceKeyword");
   const deviceBuildingFilter = el("deviceBuildingFilter");
 
-  if (screenRefresh) screenRefresh.addEventListener("click", async () => { await loadScreenData(); await loadDevices(); });
+  if (screenRefresh) screenRefresh.addEventListener("click", async () => { await loadScreenData(); await loadDevices(); await loadSelectedDeviceTrend(); });
   if (analysisRefresh) analysisRefresh.addEventListener("click", loadAnalysisData);
   if (devicesRefresh) devicesRefresh.addEventListener("click", async () => { await loadDeviceStats(); await loadDevices(1); });
   if (aiRefresh) aiRefresh.addEventListener("click", async () => { await loadHealthStatus(); await loadScreenData(); });
@@ -1342,7 +1386,7 @@ function bindEvents() {
   if (deviceSelectAll) deviceSelectAll.addEventListener("change", () => { state.selectedDeviceIds = deviceSelectAll.checked ? getVisibleDeviceRecords().map((item) => String(item.id)) : []; renderDevicesTable(); });
   if (alarmSelectAll) alarmSelectAll.addEventListener("change", () => { state.selectedAlarmIds = alarmSelectAll.checked ? (state.alarmsPage.records || []).map((item) => String(item.id)) : []; renderAlarmTable(); });
   if (chatInput) chatInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendQuestion(); } });
-  if (screenDeviceSelect) screenDeviceSelect.addEventListener("change", () => { state.selectedDeviceId = screenDeviceSelect.value; });
+  if (screenDeviceSelect) screenDeviceSelect.addEventListener("change", async () => { state.selectedDeviceId = screenDeviceSelect.value; await loadSelectedDeviceTrend(); });
   const deviceStatusFilter = el("deviceStatusFilter");
   if (deviceStatusFilter) deviceStatusFilter.addEventListener("change", () => {
     state.deviceStatusQuickFilter = deviceStatusFilter.value.trim();
