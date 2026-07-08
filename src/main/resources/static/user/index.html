@@ -47,15 +47,21 @@
       <!-- 顶部栏 -->
       <header class="topbar">
         <div class="title-block">
+          <p class="page-kicker">消防住户端 <span class="endpoint-badge resident">居民侧</span></p>
           <h2 id="viewTitle">首页 / 仪表盘</h2>
           <p id="viewSubTitle">我的设备概览与实时告警 <span class="endpoint-badge resident">居民端</span></p>
         </div>
-        <div class="topbar-right">
+        <div class="runtime-meta">
+          <span id="activeAlarmStatus" class="chip warn">待处理告警: 0</span>
+          <span id="systemLastSync" class="chip">最近同步: --</span>
+          <span class="chip ok">访问端: 居民端</span>
+          <span class="chip" id="residentDeviceSummary">我的设备: 0</span>
+          <span id="clock" class="clock">--:--:--</span>
           <span class="user-info">
             <span class="user-avatar" id="userAvatar">👤</span>
             <span class="user-name" id="userName">--</span>
           </span>
-          <button class="btn btn-ghost" id="btnLogout" title="退出登录">退出</button>
+          <button class="btn ghost" id="btnLogout" title="退出登录" type="button">退出登录</button>
         </div>
       </header>
 
@@ -118,6 +124,14 @@
             </ul>
           </article>
         </div>
+
+        <div class="panel" style="margin-top:12px;">
+          <div class="panel-header">
+            <h3>24小时烟雾浓度趋势</h3>
+            <select id="trendDeviceSelect"></select>
+          </div>
+          <div id="chartTrend" class="chart"></div>
+        </div>
       </section>
 
       <!-- ====== 视图：我的设备 ====== -->
@@ -150,14 +164,6 @@
           <div id="devicePagination" class="pagination-bar"></div>
         </div>
 
-        <!-- 烟雾趋势图 -->
-        <div class="panel" style="margin-top:12px;">
-          <div class="panel-header">
-            <h3>24小时烟雾浓度趋势</h3>
-            <select id="trendDeviceSelect"></select>
-          </div>
-          <div id="chartTrend" class="chart"></div>
-        </div>
       </section>
 
       <!-- ====== 视图：告警记录 ====== -->

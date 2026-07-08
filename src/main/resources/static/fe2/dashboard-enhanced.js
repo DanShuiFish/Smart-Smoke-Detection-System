@@ -1,4 +1,4 @@
-const API_BASE = "/api/v1";
+﻿const API_BASE = "/api/v1";
 const state = {
   currentView: "screen",
   aiSessionId: "",
@@ -47,6 +47,16 @@ function clearAuthAndBackToLogin() {
   }
 }
 
+async function logout() {
+  try {
+    await apiRequest("/auth/logout", { method: "POST" });
+  } catch (error) {
+    console.warn("logout failed:", error);
+  } finally {
+    clearAuthAndBackToLogin();
+  }
+}
+
 async function apiRequest(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = getToken();
@@ -92,6 +102,54 @@ function normalizePageResult(payload, fallbackPage = 1, fallbackPageSize = 10) {
   const pages = Number(source.pages || Math.max(1, Math.ceil(total / Math.max(pageSize, 1))));
   return { page, pageSize, total, pages, records };
 }
+function formatAlarmType(type) {
+  const s = String(type || "").toUpperCase();
+  if (s === "SMOKE_OVERFLOW") return "烟雾超标";
+  if (s === "TEMP_OVERFLOW") return "温度异常";
+  if (s === "FIRE_RISK") return "复合火情";
+  if (s === "DEVICE_OFFLINE") return "设备离线";
+  if (s === "DEVICE_ERROR") return "设备故障";
+  return safeText(type, "告警");
+}
+function formatAlarmLevel(level) {
+  const s = String(level || "").toUpperCase();
+  if (s === "LOW") return "低";
+  if (s === "MEDIUM") return "中";
+  if (s === "HIGH") return "高";
+  if (s === "CRITICAL") return "紧急";
+  return safeText(level, "--");
+}
+function formatAlarmStatus(status) {
+  const s = String(status || "").toUpperCase();
+  if (s === "PENDING") return "待处理";
+  if (s === "CONFIRMING") return "确认中";
+  if (s === "CONFIRMED") return "已确认";
+  if (s === "RESOLVED") return "已处置";
+  if (s === "ARCHIVED") return "已归档";
+  if (s === "CLOSED") return "已关闭";
+  return safeText(status, "--");
+}
+function buildAlarmLocation(item) {
+  return [item.locationBuilding || item.building, item.locationFloor || item.floor, item.locationRoom || item.room]
+    .filter(Boolean)
+    .join("");
+}
+function formatAlarmMetric(item) {
+  const type = String(item.alarmType || "").toUpperCase();
+  const smoke = Number(item.smokeConcentration || item.smoke || 0);
+  const temp = Number(item.temperature || 0);
+  const threshold = Number(item.thresholdValue || 0);
+  if (type === "TEMP_OVERFLOW") {
+    return Number.isFinite(temp) && temp > 0 ? ("温度 " + temp.toFixed(1) + " C") : "温度异常";
+  }
+  if (Number.isFinite(smoke) && smoke > 0 && Number.isFinite(threshold) && threshold > 0) {
+    return "当前 " + smoke.toFixed(2) + " / 阈值 " + threshold.toFixed(2) + " mg/m3";
+  }
+  if (Number.isFinite(smoke) && smoke > 0) {
+    return "当前 " + smoke.toFixed(2) + " mg/m3";
+  }
+  return "等待更多数据";
+}
 function alarmStatusClass(status) {
   const s = String(status || "").toUpperCase();
   if (s === "PENDING" || s === "CONFIRMING") return "warn";
@@ -127,9 +185,14 @@ function renderChart(key, nodeId, option, hasData, emptyTitle, emptyDesc) {
   const node = el(nodeId);
   if (!node) return;
   if (!hasData) { disposeChart(key); renderEmptyState(node, emptyTitle, emptyDesc); return; }
-  node.innerHTML = "";
+  if (!charts[key]) {
+    node.innerHTML = "";
+  }
   const chart = ensureChart(key, nodeId);
-  if (chart) chart.setOption(option, true);
+  if (chart) {
+    chart.clear();
+    chart.setOption(option, true);
+  }
 }
 function resizeVisibleCharts() { Object.values(charts).forEach((chart) => { if (chart && typeof chart.resize === "function") chart.resize(); }); }
 function getActiveAlarm() {
@@ -138,6 +201,46 @@ function getActiveAlarm() {
   if (active) return active;
   return state.analysis.alarmSample.find((item) => String(item.alarmStatus || "").toUpperCase() === "PENDING") || state.screen.alarmSample[0] || null;
 }
+
+function buildBroadcastDraft() {
+  const activeAlarm = getActiveAlarm();
+  if (activeAlarm) {
+    const area = buildAlarmLocation(activeAlarm) || "当前区域";
+    const levelText = formatAlarmLevel(activeAlarm.alarmLevel || "");
+    const typeText = formatAlarmType(activeAlarm.alarmType || "");
+    const metricText = formatAlarmMetric(activeAlarm);
+    return {
+      source: "alarm",
+      alarmId: activeAlarm.id != null ? Number(activeAlarm.id) : null,
+      deviceId: activeAlarm.deviceId != null ? Number(activeAlarm.deviceId) : null,
+      broadcastArea: area,
+      broadcastType: "EMERGENCY",
+      triggerMode: "ALARM_LINKAGE",
+      content: "【" + levelText + typeText + "通知】" + area + "发生" + typeText + "，" + metricText + "。请立即关注现场情况，必要时按疏散预案有序撤离。"
+    };
+  }
+  if (lastAiAnswer) {
+    return {
+      source: "ai",
+      alarmId: null,
+      deviceId: null,
+      broadcastArea: "",
+      broadcastType: "EMERGENCY",
+      triggerMode: "AI_MANUAL",
+      content: lastAiAnswer
+    };
+  }
+  return null;
+}
+
+function updateBroadcastButtonState() {
+  const btn = document.getElementById("btnBroadcast");
+  if (!btn) return;
+  const draft = buildBroadcastDraft();
+  btn.disabled = !draft;
+  btn.title = draft ? (draft.source === "alarm" ? "将基于当前活跃告警下发广播" : "将基于 AI 分析结论下发广播") : "暂无可下发的活跃告警或 AI 分析结论";
+}
+
 
 function setNavState(view) { document.querySelectorAll(".nav-btn").forEach((item) => item.classList.toggle("active", item.dataset.view === view)); }
 function switchView(view) {
@@ -211,7 +314,10 @@ function getScreenDeviceStatusData() {
 }
 function buildAlarmTypeSeries(rows) {
   const counts = {};
-  (rows || []).forEach((item) => { const name = safeText(item.alarmType || item.type || item.alarmName || "未分类"); counts[name] = (counts[name] || 0) + 1; });
+  (rows || []).forEach((item) => {
+    const name = formatAlarmType(item.alarmType || item.type || item.alarmName || "告警");
+    counts[name] = (counts[name] || 0) + 1;
+  });
   return Object.keys(counts).map((name) => ({ name, value: counts[name] }));
 }
 function buildHeatmapData(points, alarms) {
@@ -240,7 +346,11 @@ function renderScreenAlarmList() {
   if (!rows.length) { renderEmptyState(list, "暂无告警", "当前没有可展示的活跃告警数据。请稍后刷新或检查后端数据。"); return; }
   list.innerHTML = rows.map((item) => {
     const levelClass = alarmLevelClass(item.alarmLevel);
-    return '<li class="list-item alarm-card ' + levelClass + '"><div class="card-row"><strong>' + escapeHtml(safeText(item.alarmType, "告警")) + '</strong><span class="status-badge ' + alarmStatusClass(item.alarmStatus) + '">' + escapeHtml(safeText(item.alarmStatus, "--")) + '</span></div><div style="margin-top:6px;color:#64748b;">设备: ' + escapeHtml(safeText(item.deviceId, "--")) + ' · 楼栋: ' + escapeHtml(safeText(item.locationBuilding || item.building, "--")) + '</div></li>';
+    const location = buildAlarmLocation(item);
+    return '<li class="list-item alarm-card ' + levelClass + '">' +
+      '<div class="card-row"><strong>' + escapeHtml(formatAlarmType(item.alarmType)) + '</strong><span class="status-badge ' + alarmStatusClass(item.alarmStatus) + '">' + escapeHtml(formatAlarmStatus(item.alarmStatus)) + '</span></div>' +
+      '<div style="margin-top:6px;color:#64748b;">设备: ' + escapeHtml(safeText(item.deviceName || item.deviceId, "--")) + (location ? ' · 位置: ' + escapeHtml(location) : '') + '</div>' +
+      '<div style="margin-top:4px;color:#94a3b8;">' + escapeHtml(formatAlarmMetric(item)) + '</div></li>';
   }).join("");
 }
 function renderScreenCharts() {
@@ -913,7 +1023,7 @@ async function sendQuestion() {
     const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = aiRound;
     const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = answer.length ? Math.floor(answer.length * 1.5) : "—";
     // 启用广播按钮
-    const btn = el("btnBroadcast"); if (btn) btn.disabled = false;
+    updateBroadcastButtonState();
     addLog("success", "/api/v1/conversations", JSON.stringify({ question: question, answer: answer.substring(0, 100) + "..." }), 200, latency);
   } catch (error) {
     appendChat("ai", "大模型回复异常：" + error.message, true);
@@ -923,11 +1033,24 @@ async function sendQuestion() {
 }
 
 async function sendBroadcast() {
-  if (!lastAiAnswer) { showGlobalAlert("暂无 AI 分析结论可下发，请先进行对话"); return; }
-  if (!confirm("确认将 AI 分析结论作为广播指令下发到所有设备？\n\n分析摘要：" + lastAiAnswer.substring(0, 100) + "...")) return;
+  const draft = buildBroadcastDraft();
+  if (!draft) { showGlobalAlert("当前没有活跃告警且没有 AI 对话结论，暂无可下发的广播内容"); return; }
+  const preview = draft.content.length > 100 ? draft.content.substring(0, 100) + "..." : draft.content;
+  const prompt = draft.source === "alarm"
+    ? "确认将当前活跃告警联动为广播指令？\n\n广播区域：" + (draft.broadcastArea || "当前区域") + "\n广播内容：" + preview
+    : "确认将 AI 分析结论作为广播指令下发？\n\n分析摘要：" + preview;
+  if (!confirm(prompt)) return;
   try {
-    await apiRequest("/broadcasts", { method: "POST", body: JSON.stringify({ broadcastContent: lastAiAnswer, broadcastType: "EMERGENCY", triggerMode: "AI_MANUAL" }) });
-    showGlobalAlert("广播指令已下发");
+    const payload = {
+      alarmId: draft.alarmId,
+      deviceId: draft.deviceId,
+      broadcastArea: draft.broadcastArea,
+      broadcastContent: draft.content,
+      broadcastType: draft.broadcastType,
+      triggerMode: draft.triggerMode
+    };
+    await apiRequest("/broadcasts", { method: "POST", body: JSON.stringify(payload) });
+    showGlobalAlert(draft.source === "alarm" ? "已按当前活跃告警下发广播" : "已按 AI 分析结论下发广播");
     addLog("success", "/api/v1/broadcasts", "广播指令已下发", 200, 0);
   } catch (error) {
     showGlobalAlert("广播失败: " + error.message);
@@ -947,7 +1070,7 @@ function clearChat() {
   const rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = "0";
   const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = "—";
   renderAiJudgement();
-  const btn = el("btnBroadcast"); if (btn) btn.disabled = true;
+  updateBroadcastButtonState();
 }
 
 function bindQuickQs() {
@@ -1007,6 +1130,42 @@ function showGlobalAlert(text) {
   showGlobalAlert.timer = setTimeout(() => node.classList.add("hidden"), 4000);
 }
 
+function showRealtimeAlarmBanner(payload) {
+  const node = el("globalAlert");
+  if (!node) return;
+  const levelClass = alarmLevelClass(payload.alarmLevel);
+  const title = formatAlarmLevel(payload.alarmLevel) + "级" + formatAlarmType(payload.alarmType || payload.alarmTypeText);
+  const deviceName = safeText(payload.deviceName || payload.deviceId, "未知设备");
+  const location = [payload.building, payload.floor, payload.room].filter(Boolean).join("");
+  const metric = formatAlarmMetric(payload);
+  const summary = safeText(payload.message, metric);
+  node.innerHTML = '<div class="alert-banner ' + levelClass + '">' +
+    '<div class="alert-banner-title">' + escapeHtml(title) + ' | ' + escapeHtml(deviceName) + '</div>' +
+    '<div class="alert-banner-meta">' + (location ? ('位置: ' + escapeHtml(location) + ' · ') : '') + '状态: ' + escapeHtml(formatAlarmStatus(payload.alarmStatus)) + ' · ' + escapeHtml(metric) + '</div>' +
+    '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
+  node.classList.remove("hidden");
+  clearTimeout(showRealtimeAlarmBanner.timer);
+  showRealtimeAlarmBanner.timer = setTimeout(() => node.classList.add("hidden"), 10000);
+}
+
+function showBroadcastBanner(payload) {
+  const node = el("globalAlert");
+  if (!node) return;
+  const area = safeText(payload.area || payload.broadcastArea, "当前区域");
+  const mode = payload.triggerMode === "AUTO" ? "自动" : (payload.triggerMode === "MANUAL" ? "手动" : "联动");
+  const typeLabel = payload.broadcastType === "EMERGENCY" ? "紧急广播" : (payload.broadcastType === "NOTIFICATION" ? "通知" : "广播");
+  const deviceName = safeText(payload.deviceName, "");
+  const summary = safeText(payload.message || payload.broadcastContent, "");
+  const timeStr = payload.time ? payload.time.substring(11, 19) : "";
+  node.innerHTML = '<div class="alert-banner danger">' +
+    '<div class="alert-banner-title">[广播] ' + escapeHtml(typeLabel) + ' | ' + escapeHtml(area) + (deviceName ? ' | ' + escapeHtml(deviceName) : '') + '</div>' +
+    '<div class="alert-banner-meta">触发方式: ' + escapeHtml(mode) + ' · 时间: ' + escapeHtml(timeStr) + '</div>' +
+    '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
+  node.classList.remove("hidden");
+  clearTimeout(showBroadcastBanner.timer);
+  showBroadcastBanner.timer = setTimeout(() => node.classList.add("hidden"), 15000);
+}
+
 async function loadHealthStatus() {
   try {
     const health = await apiRequest("/health");
@@ -1037,6 +1196,7 @@ async function loadScreenData() {
     renderScreenCharts();
     renderAiJudgement();
     setSyncTime();
+    updateBroadcastButtonState();
   } catch (error) {
     console.error(error);
     showGlobalAlert("大屏数据加载失败: " + error.message);
@@ -1053,6 +1213,7 @@ async function loadAnalysisData() {
     state.analysis.deviceStats = Array.isArray(deviceStats) ? deviceStats : [];
     state.analysis.alarmSample = normalizePageResult(alarmPage, 1, 100).records;
     renderAnalysisCharts();
+    updateBroadcastButtonState();
   } catch (error) {
     console.error(error);
     showGlobalAlert("数据分析加载失败: " + error.message);
@@ -1100,7 +1261,17 @@ function connectWebSocket() {
     const socket = new WebSocket(wsUrl);
     socket.onopen = () => setChip("wsStatus", "WebSocket: 已连接", "ok");
     socket.onclose = () => setChip("wsStatus", "WebSocket: 已断开", "warn");
-    socket.onmessage = (event) => showGlobalAlert("实时告警: " + event.data);
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.kind === "broadcast") { showBroadcastBanner(payload); }
+        else { showRealtimeAlarmBanner(payload); }
+        loadAnalysisData();
+        loadAlarmRows(1);
+      } catch (error) {
+        showGlobalAlert("实时告警: " + event.data);
+      }
+    };
   } catch (error) {
     setChip("wsStatus", "WebSocket: 不可用", "warn");
   }
@@ -1128,6 +1299,7 @@ function bindEvents() {
   const btnBatchResolveAlarms = el("btnBatchResolveAlarms");
   const btnBatchArchiveAlarms = el("btnBatchArchiveAlarms");
   const btnBatchCloseAlarms = el("btnBatchCloseAlarms");
+  const btnLogout = el("btnLogout");
   const deviceSelectAll = el("deviceSelectAll");
   const alarmSelectAll = el("alarmSelectAll");
   const screenDeviceSelect = el("screenDeviceSelect");
@@ -1157,6 +1329,7 @@ function bindEvents() {
   if (btnLoadAlarms) btnLoadAlarms.addEventListener("click", () => loadAlarmRows(1));
   if (btnSendQuestion) btnSendQuestion.addEventListener("click", sendQuestion);
   if (btnBroadcast) btnBroadcast.addEventListener("click", sendBroadcast);
+  if (btnLogout) btnLogout.addEventListener("click", logout);
   if (btnSelectAllDevices) btnSelectAllDevices.addEventListener("click", () => { state.selectedDeviceIds = getVisibleDeviceRecords().map((item) => String(item.id)); renderDevicesTable(); });
   if (btnClearDevices) btnClearDevices.addEventListener("click", () => { state.selectedDeviceIds = []; renderDevicesTable(); });
   if (btnBatchDeleteDevices) btnBatchDeleteDevices.addEventListener("click", batchDeleteDevices);

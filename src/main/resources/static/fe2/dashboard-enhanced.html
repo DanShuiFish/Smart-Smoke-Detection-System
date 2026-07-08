@@ -29,28 +29,21 @@
       <main class="workspace">
         <header class="topbar">
           <div class="title-block">
+            <p class="page-kicker">消防 PC 管理端 <span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(37,99,235,0.12);color:#1d4ed8;border:1px solid rgba(37,99,235,0.3);margin-left:6px;vertical-align:middle;">管理端-大屏</span></p>
             <h2 id="viewTitle">首页 / 数据大屏</h2>
             <p id="viewSubTitle">设备态势、实时监测、告警联动</p>
           </div>
           <div class="runtime-meta">
+            <span id="activeAlarmStatus" class="chip warn">活跃告警: 0</span>
+            <span id="systemLastSync" class="chip">最近同步: --</span>
             <span id="healthStatus" class="chip danger">服务: 检查中</span>
             <span id="mqttStatus" class="chip warn">MQTT: --</span>
             <span id="redisStatus" class="chip warn">Redis: --</span>
             <span id="wsStatus" class="chip warn">WebSocket: --</span>
             <span id="clock" class="clock">--:--:--</span>
+            <button id="btnLogout" class="btn ghost" type="button">退出登录</button>
           </div>
         </header>
-
-        <section class="page-banner">
-          <div>
-            <p class="page-kicker">消防 PC 管理端 <span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(37,99,235,0.12);color:#1d4ed8;border:1px solid rgba(37,99,235,0.3);margin-left:6px;vertical-align:middle;">管理端-大屏</span></p>
-            <h3 id="bannerTitle">首页 / 数据大屏</h3>
-          </div>
-          <div class="banner-meta">
-            <span id="activeAlarmStatus" class="chip warn">活跃告警: 0</span>
-            <span id="systemLastSync" class="chip">最近同步: --</span>
-          </div>
-        </section>
 
         <div id="globalAlert" class="global-alert hidden"></div>
 
@@ -229,7 +222,7 @@
                 </label>
                 <label class="form-field">
                   <span>信号强度</span>
-                  <input id="formSignalStrength" name="signalStrength" type="number" min="0" max="100" value="100" />
+                  <input id="formSignalStrength" name="signalStrength" type="number" min="-150" max="100" value="100" />
                 </label>
                 <label class="form-field">
                   <span>心跳超时(秒)</span>
