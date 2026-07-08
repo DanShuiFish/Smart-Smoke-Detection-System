@@ -2,6 +2,7 @@ package com.smartsmoke.rule;
 
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartsmoke.entity.AiReviewRecord;
 import com.smartsmoke.entity.AlarmRecord;
 import com.smartsmoke.entity.AlertThreshold;
@@ -48,6 +49,9 @@ public class AlarmRuleEngine {
 
     @Autowired
     private DeviceMapper deviceMapper;
+
+    @Autowired
+    private ObjectMapper objectMapper;  // Spring 管理的 Jackson ObjectMapper（含 JavaTimeModule + JacksonConfig）
 
     public void processData(SensorData data) {
         sensorDataService.save(data);
@@ -97,9 +101,15 @@ public class AlarmRuleEngine {
         record.setSmokeConcentration(data.getSmokeConcentration());
         record.setThresholdValue(thresholdVal);
         record.setAlarmTime(LocalDateTime.now());
+        record.setCreateTime(LocalDateTime.now());  // WebSocket广播前填充，避免推送null
         alarmRecordService.save(record);
 
-        AlarmWebSocket.broadcast(JSONUtil.toJsonStr(record));
+        try {
+            AlarmWebSocket.broadcast(objectMapper.writeValueAsString(record));
+        } catch (Exception e) {
+            log.error("WebSocket 广播序列化失败: {}", e.getMessage());
+            AlarmWebSocket.broadcast(JSONUtil.toJsonStr(record));  // 降级 Hutool
+        }
 
         if ("HIGH".equals(alarmLevel) || "CRITICAL".equals(alarmLevel)) {
             runAiReviewAndBroadcast(record, data);

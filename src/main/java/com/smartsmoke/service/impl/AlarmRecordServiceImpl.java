@@ -65,6 +65,7 @@ public class AlarmRecordServiceImpl extends ServiceImpl<AlarmRecordMapper, Alarm
             record.setAlarmLevel("HIGH");
             record.setAlarmStatus("PENDING");
             record.setAlarmTime(now);
+            record.setCreateTime(now);
             record.setIsVisionReviewed(0);
             record.setIsBroadcastSent(0);
         } else {
@@ -107,7 +108,7 @@ public class AlarmRecordServiceImpl extends ServiceImpl<AlarmRecordMapper, Alarm
         payload.set("alarmLevelText", "高");
         payload.set("alarmStatus", record.getAlarmStatus());
         payload.set("message", record.getRemark());
-        payload.set("alarmTime", record.getAlarmTime() != null ? record.getAlarmTime().toString() : "");
+        payload.set("alarmTime", record.getAlarmTime() != null ? record.getAlarmTime().format(com.smartsmoke.common.DateTimeConst.FMT) : "");
         payload.set("deviceId", device.getDeviceId());
         payload.set("deviceName", device.getDeviceName());
         payload.set("building", device.getLocationBuilding());

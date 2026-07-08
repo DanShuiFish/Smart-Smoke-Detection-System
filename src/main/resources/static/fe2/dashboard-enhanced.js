@@ -787,7 +787,7 @@ function renderAlarmTable() {
     const checked = state.selectedAlarmIds.includes(String(item.id)) ? 'checked' : '';
     return '<tr>' +
       '<td class="row-select"><input type="checkbox" data-alarm-check="true" data-id="' + escapeHtml(safeText(item.id, "")) + '" ' + checked + ' /></td>' +
-      '<td>' + escapeHtml(safeText(item.createTime || item.alarmTime || item.time, "--")) + '</td>' +
+      '<td>' + escapeHtml(safeText(item.alarmTime || item.createTime || item.time, "--")) + '</td>' +
       '<td>' + escapeHtml(safeText(item.alarmType, "--")) + '</td>' +
       '<td><span class="status-badge ' + alarmLevelClass(level) + '">' + escapeHtml(level) + '</span></td>' +
       '<td><span class="status-badge ' + alarmStatusClass(status) + '">' + escapeHtml(status) + '</span></td>' +
