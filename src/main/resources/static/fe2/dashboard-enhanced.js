@@ -499,7 +499,7 @@ function getDevicePayloadFromForm() {
     status: safeText(el("formStatus") && el("formStatus").value, "OFFLINE").trim(),
     battery: Number(safeText(el("formBattery") && el("formBattery").value, "0")),
     signalStrength: Number(safeText(el("formSignalStrength") && el("formSignalStrength").value, "0")),
-    heartbeatTimeout: Number(safeText(el("formHeartbeatTimeout") && el("formHeartbeatTimeout").value, "120")),
+    heartbeatTimeout: Number(safeText(el("formHeartbeatTimeout") && el("formHeartbeatTimeout").value, "30")),
     locationBuilding: safeText(el("formLocationBuilding") && el("formLocationBuilding").value, "").trim(),
     locationFloor: safeText(el("formLocationFloor") && el("formLocationFloor").value, "").trim(),
     locationRoom: safeText(el("formLocationRoom") && el("formLocationRoom").value, "").trim(),
@@ -521,7 +521,7 @@ function fillDeviceForm(item) {
   if (el("formStatus")) el("formStatus").value = safeText(item && item.status, "OFFLINE");
   if (el("formBattery")) el("formBattery").value = safeText(item && item.battery, 100);
   if (el("formSignalStrength")) el("formSignalStrength").value = safeText(item && item.signalStrength, 100);
-  if (el("formHeartbeatTimeout")) el("formHeartbeatTimeout").value = safeText(item && item.heartbeatTimeout, 120);
+  if (el("formHeartbeatTimeout")) el("formHeartbeatTimeout").value = safeText(item && item.heartbeatTimeout, 30);
   if (el("formLocationBuilding")) el("formLocationBuilding").value = safeText(item && item.locationBuilding, "");
   if (el("formLocationFloor")) el("formLocationFloor").value = safeText(item && item.locationFloor, "");
   if (el("formLocationRoom")) el("formLocationRoom").value = safeText(item && item.locationRoom, "");

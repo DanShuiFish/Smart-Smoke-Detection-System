@@ -202,6 +202,12 @@ class SmokeSimulatorCore:
             self.build_alert_payload(device, config),
         )
 
+    def send_heartbeat_once(self, device: dict, config: SimulatorConfig) -> bool:
+        return self.publish(
+            f"smoke/{device['device_code']}/heartbeat",
+            self.build_heartbeat_payload(device, config),
+        )
+
     def _heartbeat_loop(self, device: dict, config: SimulatorConfig) -> None:
         while self.running and not self.stop_event.is_set():
             self.publish(

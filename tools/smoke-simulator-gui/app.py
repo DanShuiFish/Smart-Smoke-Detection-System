@@ -525,6 +525,7 @@ class SmokeSimulatorApp:
                     ok = self.core.send_alert_once(device, config) and ok
                 else:
                     ok = self.core.send_normal_once(device, config) and ok
+                    ok = self.core.send_heartbeat_once(device, config) and ok
 
             if need_disconnect:
                 self.core.disconnect()

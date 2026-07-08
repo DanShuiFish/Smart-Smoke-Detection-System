@@ -174,6 +174,9 @@ public class DeviceController {
         }
         if (device.getStatus() == null) device.setStatus("OFFLINE");
         if (device.getBattery() == null) device.setBattery(100);
+        if (device.getHeartbeatTimeout() == null || device.getHeartbeatTimeout() < 10) {
+            device.setHeartbeatTimeout(30);
+        }
         deviceService.save(device);
 
         // 鑷姩缁戝畾锛氬垱寤鸿€呮垚涓鸿璁惧鐨?OWNER
@@ -199,6 +202,11 @@ public class DeviceController {
                 .one();
         if (duplicate != null) {
             return Result.error(409, "设备编号已存在"  + device.getDeviceId());
+        }
+        if (device.getHeartbeatTimeout() == null || device.getHeartbeatTimeout() < 10) {
+            device.setHeartbeatTimeout(exist.getHeartbeatTimeout() != null && exist.getHeartbeatTimeout() >= 10
+                    ? exist.getHeartbeatTimeout()
+                    : 30);
         }
         device.setId(id);
         deviceService.updateById(device);
