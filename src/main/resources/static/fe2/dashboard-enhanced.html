@@ -23,6 +23,7 @@
           <button class="nav-btn" data-view="analysis" title="数据分析"><span class="nav-icon">分</span><span class="nav-text">数据分析</span></button>
           <button class="nav-btn" data-view="ai" title="AI 智能问答"><span class="nav-icon">智</span><span class="nav-text">AI 智能问答</span></button>
           <button class="nav-btn" data-view="alarms" title="告警日志"><span class="nav-icon">警</span><span class="nav-text">告警日志</span></button>
+          <button class="nav-btn" data-view="reviews" title="AI视觉复核"><span class="nav-icon">视</span><span class="nav-text">AI视觉复核</span></button>
         </nav>
       </aside>
 
@@ -174,6 +175,50 @@
             <div class="batch-bar"><span id="alarmBatchHint" class="batch-hint">已选择 0 条告警</span><div class="batch-actions"><button id="btnSelectAllAlarms" class="btn">全选</button><button id="btnClearAlarms" class="btn">取消选择</button><button id="btnBatchConfirmAlarms" class="btn btn-main">批量确认</button><button id="btnBatchResolveAlarms" class="btn btn-main">批量处置</button><button id="btnBatchArchiveAlarms" class="btn">批量归档</button><button id="btnBatchCloseAlarms" class="btn danger">批量关闭</button></div></div>
             <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="alarmSelectAll" /></th><th>时间</th><th>告警类型</th><th>等级</th><th>状态</th><th>设备</th><th>楼栋</th><th>处置操作</th><th>详情</th></tr></thead><tbody id="alarmTableBody"></tbody></table></div>
             <div id="alarmPagination" class="pagination-bar"></div>
+          </div>
+        </section>
+
+        <section id="view-reviews" class="view">
+          <div class="module-heading">
+            <div><h3>AI 视觉复核</h3><p>查看 AI 火焰/烟雾识别结果，支持人工复核确认</p></div>
+            <button id="btnRefreshReviews" class="btn">刷新</button>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h3>复核记录列表</h3>
+              <div class="toolbar">
+                <input id="reviewFilterAlarmId" type="text" placeholder="告警ID" style="width:100px;" />
+                <input id="reviewFilterDeviceId" type="text" placeholder="设备ID" style="width:100px;" />
+                <select id="reviewFilterResult">
+                  <option value="">全部结果</option>
+                  <option value="FIRE_CONFIRMED">AI确认火情</option>
+                  <option value="NO_FIRE">AI排除火情</option>
+                  <option value="UNCERTAIN">不确定</option>
+                </select>
+                <button id="btnSearchReviews" class="btn btn-main">查询</button>
+                <button id="btnResetReviews" class="btn">重置</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>告警ID</th>
+                    <th>设备ID</th>
+                    <th>复核类型</th>
+                    <th>AI 判定结果</th>
+                    <th>置信度</th>
+                    <th>人工复核</th>
+                    <th>人工结果</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="reviewTableBody"></tbody>
+              </table>
+            </div>
+            <div id="reviewPagination" class="pagination-bar"></div>
           </div>
         </section>
 
