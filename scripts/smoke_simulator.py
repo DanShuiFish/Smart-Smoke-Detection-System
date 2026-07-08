@@ -128,6 +128,7 @@ class SmokeSimulator:
         if reason_code == 0:
             self.connected = True
             print(f"[OK] 已成功连接 MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
+            self.client.subscribe("smoke/+/cmd")
         else:
             self.connected = False
             print(f"[FAIL] 连接被拒绝, reason_code={reason_code}")
@@ -135,6 +136,16 @@ class SmokeSimulator:
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
         self.connected = False
         print(f"[WARN] MQTT 连接断开, reason_code={reason_code}")
+
+    def _on_message(self, client, userdata, msg):
+        """MQTT 消息回调 - 接收广播指令"""
+        try:
+            payload = json.loads(msg.payload.decode())
+            device_code = msg.topic.split("/")[1]
+            content = payload.get("content", payload.get("cmd", "无内容"))
+            print(f"\n[模拟器 {device_code}] 收到广播指令: {content}\n")
+        except Exception as e:
+            print(f"\n[ERR] 解析广播消息失败: {e}\n")
 
     def _connect(self, timeout=5):
         """阻塞式连接 MQTT Broker，确认连上才返回"""
@@ -145,6 +156,7 @@ class SmokeSimulator:
             self.client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
+            self.client.on_message = self._on_message
 
             print(f"[...] 正在连接 {MQTT_BROKER}:{MQTT_PORT} ...")
             self.client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
@@ -421,10 +433,12 @@ def interactive_menu():
         print("  5. 指定设备离线 — 选择一台设备模拟离线")
         print("  6. 添加设备")
         print("  7. 移除设备")
+        print("  8. 选择设备正常模式 — 挑选设备持续发送数据")
+        print("  9. 选择设备群发告警 — 挑选设备同时发送告警")
         print("  0. 退出")
         print("-" * 50)
 
-        choice = input("  请选择 [0-7]: ").strip()
+        choice = input("  请选择 [0-9]: ").strip()
 
         if choice == "1":
             sim.run_normal()
@@ -472,6 +486,36 @@ def interactive_menu():
 
         elif choice == "7":
             remove_device_interactive()
+
+        elif choice == "8":
+            # 选择设备正常模式
+            show_devices()
+            raw = input("  输入要运行的设备编号 (逗号分隔, 回车=全选): ").strip().upper()
+            if not raw:
+                print("  已选择全部设备")
+                sim.run_normal()
+            else:
+                codes = [c.strip() for c in raw.split(",") if c.strip()]
+                sim.run_normal(codes)
+
+        elif choice == "9":
+            # 选择设备群发告警
+            show_devices()
+            raw = input("  输入要发送告警的设备编号 (逗号分隔): ").strip().upper()
+            if not raw:
+                print("  已取消")
+                continue
+            codes = [c.strip() for c in raw.split(",") if c.strip()]
+            try:
+                smoke_val = float(input("  烟雾浓度 (默认 0.35): ").strip() or "0.35")
+                temp_val = float(input("  温度 (默认 68.0): ").strip() or "68.0")
+            except ValueError:
+                print("  输入无效, 使用默认值")
+                smoke_val, temp_val = 0.35, 68.0
+            for code in codes:
+                print(f"\n  >>> 发送告警: {code}")
+                sim.send_alert(code, smoke_val, temp_val)
+                time.sleep(0.5)
 
         elif choice == "0":
             print("  再见!")

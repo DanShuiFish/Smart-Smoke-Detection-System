@@ -50,6 +50,7 @@
     setupChat();
     showView('dashboard');
     startAutoRefresh();
+    connectWebSocket();
   }
 
   // ===== API 封装 =====
@@ -171,6 +172,50 @@
     clearTimeout(showRealtimeAlarmBanner.timer);
     showRealtimeAlarmBanner.timer = setTimeout(() => node.classList.add('hidden'), 10000);
   }
+
+
+function showBroadcastBanner(payload) {
+  const node = $('#globalAlert');
+  if (!node) return;
+  const area = payload.area || payload.broadcastArea || '当前区域';
+  const mode = payload.triggerMode === 'AUTO' ? '自动' : (payload.triggerMode === 'MANUAL' ? '手动' : '联动');
+  const typeLabel = payload.broadcastType === 'EMERGENCY' ? '紧急广播' : (payload.broadcastType === 'NOTIFICATION' ? '通知' : '广播');
+  const summary = payload.message || payload.broadcastContent || '';
+  const timeStr = payload.time ? payload.time.substring(11, 19) : '';
+  node.innerHTML = '<div class="alert-banner danger">' +
+    '<div class="alert-banner-title">[广播] ' + escapeHtml(typeLabel) + ' | ' + escapeHtml(area) + '</div>' +
+    '<div class="alert-banner-meta">触发方式: ' + escapeHtml(mode) + ' · 时间: ' + escapeHtml(timeStr) + '</div>' +
+    '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
+  node.classList.remove('hidden');
+  clearTimeout(showBroadcastBanner.timer);
+  showBroadcastBanner.timer = setTimeout(() => node.classList.add('hidden'), 15000);
+}
+
+function connectWebSocket() {
+  try {
+    const token = localStorage.getItem('smoke_token');
+    if (!token) return;
+    const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/alarm?token=' + encodeURIComponent(token);
+    const socket = new WebSocket(wsUrl);
+    socket.onopen = () => console.log('WebSocket connected');
+    socket.onclose = () => {
+      console.log('WebSocket disconnected, retrying...');
+      setTimeout(connectWebSocket, 5000);
+    };
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.kind === 'broadcast') { showBroadcastBanner(payload); }
+        else { showRealtimeAlarmBanner(payload); }
+      } catch (e) {
+        console.error('WebSocket message error:', e);
+      }
+    };
+  } catch (e) {
+    console.error('WebSocket init error:', e);
+    setTimeout(connectWebSocket, 10000);
+  }
+}
 
   // ===== 获取我的设备 ID =====
   async function loadMyDeviceIds() {
