@@ -127,7 +127,11 @@ public class AlarmRuleEngine {
         review.setConfidence(hasFire ? BigDecimal.valueOf(85.00) : BigDecimal.ZERO);
         review.setImageUrl(fileName);
         review.setProcessingTimeMs((int) elapsed);
-        review.setAiRawResponse("{\"model\":\"YOLOv8n-ONNX\",\"fireDetected\":" + hasFire + ",\"processingTimeMs\":" + elapsed + ",\"imageFile\":\"" + fileName + "\"}");
+        review.setAiRawResponse(JSONUtil.toJsonStr(
+                java.util.Map.of("model", "YOLOv8n-ONNX",
+                        "fireDetected", hasFire,
+                        "processingTimeMs", elapsed,
+                        "imageFile", fileName)));
         review.setCreateTime(LocalDateTime.now());
         aiReviewRecordMapper.insert(review);
 

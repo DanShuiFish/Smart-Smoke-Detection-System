@@ -15,7 +15,12 @@
       "WebFetch(domain:central.sonatype.com)",
       "WebFetch(domain:doc.smartjavaai.cn)",
       "WebFetch(domain:cloud.tencent.com.cn)",
-      "PowerShell(pip *)"
+      "PowerShell(pip *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git diff *)",
+      "PowerShell(Get-Content \"E:\\\\java Pro\\\\Pro_smoke\\\\src\\\\main\\\\resources\\\\static\\\\fe2\\\\dashboard-enhanced.js\" -TotalCount 19 | ForEach-Object { $line = $_; $bytes = [System.Text.Encoding]::UTF8.GetBytes\\($line\\); $hex = \\($bytes | ForEach-Object { \"0x{0:X2}\" -f $_ }\\) -join \" \"; Write-Output \"$hex\"; Write-Output $line })",
+      "Skill(code-review)"
     ]
   }
 }

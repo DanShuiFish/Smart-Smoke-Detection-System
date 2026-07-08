@@ -1358,9 +1358,12 @@ async function loadAlarmRows(page = state.alarmsPage.page || 1) {
 }
 async function loadReviewRows(page) {
   if (!page) page = state.reviewsPage.page || 1;
-  var alarmId = safeText(el("reviewFilterAlarmId") && el("reviewFilterAlarmId").value, "").trim();
-  var deviceId = safeText(el("reviewFilterDeviceId") && el("reviewFilterDeviceId").value, "").trim();
-  var result = safeText(el("reviewFilterResult") && el("reviewFilterResult").value, "").trim();
+  var alarmInput = el("reviewFilterAlarmId");
+  var deviceInput = el("reviewFilterDeviceId");
+  var resultSelect = el("reviewFilterResult");
+  var alarmId = alarmInput ? safeText(alarmInput.value, "").trim() : "";
+  var deviceId = deviceInput ? safeText(deviceInput.value, "").trim() : "";
+  var result = resultSelect ? safeText(resultSelect.value, "").trim() : "";
   var query = "?page=" + page + "&pageSize=" + state.reviewsPage.pageSize;
   if (alarmId) query += "&alarmId=" + encodeURIComponent(alarmId);
   if (deviceId) query += "&deviceId=" + encodeURIComponent(deviceId);
@@ -1451,8 +1454,8 @@ async function showReviewDetail(id) {
     ];
     // 原图展示（若 imageUrl 不为空）
     if (item.imageUrl) {
-      var imgSrc = "/" + item.imageUrl;
-      reviewRows.push({ label: "原图", value: '<img src="' + imgSrc + '" alt="复核原图" style="max-width:100%;max-height:360px;border-radius:8px;margin-top:4px;" onerror="this.parentElement.innerHTML=\'&lt;span style=color:#94a3b8&gt;图片加载失败: ' + escapeHtml(item.imageUrl) + '&lt;/span&gt;\'" />', full: true, raw: true });
+      var imgSrc = "/" + encodeURIComponent(item.imageUrl);
+      reviewRows.push({ label: "原图", value: '<img src="' + imgSrc + '" alt="复核原图" style="max-width:100%;max-height:360px;border-radius:8px;margin-top:4px;" onerror="this.style.display=\'none\';var s=document.createElement(\'span\');s.style.color=\'#94a3b8\';s.textContent=\'图片加载失败\';this.parentElement.appendChild(s)" />', full: true, raw: true });
     }
     reviewRows.push(
       { label: "图像文件名", value: safeText(item.imageUrl, "--") },
@@ -1472,9 +1475,9 @@ async function handleManualConfirm(id, result) {
       method: "PUT",
       body: JSON.stringify({ manualReviewResult: result, remark: "管理端人工" + label })
     });
-    showGlobalAlert("人工" + label + "成功");
     await loadReviewRows(state.reviewsPage.page);
     await loadAlarmRows(state.alarmsPage.page);
+    showGlobalAlert("人工" + label + "成功");
   } catch (error) {
     showGlobalAlert("人工" + label + "失败: " + error.message);
   }
