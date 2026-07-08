@@ -1341,6 +1341,102 @@ async function loadReviewRows(page) {
     showGlobalAlert("AI复核记录加载失败: " + error.message);
   }
 }
+function renderReviewTable() {
+  var body = el("reviewTableBody");
+  if (!body) return;
+  var rows = state.reviewsPage.records || [];
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="10"><div class="empty-state"><strong>暂无AI复核记录</strong><p>当前筛选条件下没有复核记录，请调整筛选条件后重试。</p></div></td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(function(item) {
+    var reviewClass = reviewResultClass(item.reviewResult);
+    var manualClass = manualReviewClass(item.isManualReview, item.manualReviewResult);
+    var manualText = formatManualReview(item.isManualReview, item.manualReviewResult);
+    var confidenceText = item.confidence != null ? (Number(item.confidence)).toFixed(1) + "%" : "--";
+    var canManualReview = Number(item.isManualReview) !== 1;
+    var actions = '<button class="btn" data-review-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button>';
+    if (canManualReview) {
+      actions += '<button class="btn btn-main" data-review-confirm="true" data-id="' + escapeHtml(safeText(item.id, "")) + '" style="margin-left:4px;">确认</button>';
+      actions += '<button class="btn danger" data-review-dismiss="true" data-id="' + escapeHtml(safeText(item.id, "")) + '" style="margin-left:4px;">驳回</button>';
+    }
+    return '<tr>' +
+      '<td>' + escapeHtml(safeText(item.id, "--")) + '</td>' +
+      '<td>' + escapeHtml(safeText(item.alarmId, "--")) + '</td>' +
+      '<td>' + escapeHtml(safeText(item.deviceId, "--")) + '</td>' +
+      '<td>' + escapeHtml(safeText(item.reviewType, "SMOKE_FIRE")) + '</td>' +
+      '<td><span class="status-badge ' + reviewClass + '">' + escapeHtml(formatReviewResult(item.reviewResult)) + '</span></td>' +
+      '<td>' + escapeHtml(confidenceText) + '</td>' +
+      '<td><span class="status-badge ' + manualClass + '">' + escapeHtml(manualText) + '</span></td>' +
+      '<td>' + escapeHtml(safeText(item.manualReviewResult, "--")) + '</td>' +
+      '<td>' + escapeHtml(safeText(item.createTime, "--")) + '</td>' +
+      '<td><div class="table-actions">' + actions + '</div></td>' +
+      '</tr>';
+  }).join("");
+  // 绑定事件
+  body.querySelectorAll("button[data-review-detail]").forEach(function(btn) {
+    btn.addEventListener("click", function() { showReviewDetail(btn.dataset.id); });
+  });
+  body.querySelectorAll("button[data-review-confirm]").forEach(function(btn) {
+    btn.addEventListener("click", function() { handleManualConfirm(btn.dataset.id, "CONFIRMED"); });
+  });
+  body.querySelectorAll("button[data-review-dismiss]").forEach(function(btn) {
+    btn.addEventListener("click", function() { handleManualConfirm(btn.dataset.id, "DISMISSED"); });
+  });
+}
+function renderReviewPagination() {
+  var node = el("reviewPagination");
+  if (!node) return;
+  var page = state.reviewsPage.page || 1;
+  var pages = state.reviewsPage.pages || 1;
+  var total = state.reviewsPage.total || 0;
+  node.innerHTML = '<span class="page-info">第 ' + page + ' / ' + pages + ' 页，共 ' + total + ' 条</span><div class="page-actions"><button class="btn" data-page="prev" ' + (page <= 1 ? 'disabled' : '') + '>上一页</button><button class="btn" data-page="next" ' + (page >= pages ? 'disabled' : '') + '>下一页</button></div>';
+  node.querySelectorAll("button[data-page]").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      var targetPage = btn.dataset.page === "next" ? page + 1 : page - 1;
+      loadReviewRows(targetPage);
+    });
+  });
+}
+async function showReviewDetail(id) {
+  try {
+    var item = await apiRequest("/ai-reviews/" + id);
+    openDetailModal("AI复核详情 #" + id, [
+      { label: "复核ID", value: safeText(item.id, "--") },
+      { label: "关联告警ID", value: safeText(item.alarmId, "--") },
+      { label: "设备ID", value: safeText(item.deviceId, "--") },
+      { label: "摄像头ID", value: safeText(item.cameraId, "--") },
+      { label: "复核类型", value: safeText(item.reviewType, "--") },
+      { label: "AI判定结果", value: formatReviewResult(item.reviewResult) },
+      { label: "置信度", value: item.confidence != null ? Number(item.confidence).toFixed(1) + "%" : "--" },
+      { label: "图像路径", value: safeText(item.imageUrl, "--") },
+      { label: "处理耗时", value: item.processingTimeMs != null ? item.processingTimeMs + " ms" : "--" },
+      { label: "人工复核状态", value: formatManualReview(item.isManualReview, item.manualReviewResult) },
+      { label: "人工复核人ID", value: safeText(item.manualReviewUserId, "--") },
+      { label: "人工复核结果", value: safeText(item.manualReviewResult, "--") },
+      { label: "备注", value: safeText(item.remark, "--") },
+      { label: "AI原始响应", value: safeText(item.aiRawResponse || "无", "无"), full: true },
+      { label: "创建时间", value: safeText(item.createTime, "--") },
+    ]);
+  } catch (error) {
+    showGlobalAlert("AI复核详情加载失败: " + error.message);
+  }
+}
+async function handleManualConfirm(id, result) {
+  var label = result === "CONFIRMED" ? "确认" : "驳回";
+  if (!confirm("确定要" + label + "该AI复核结果吗？")) return;
+  try {
+    await apiRequest("/ai-reviews/" + id + "/manual-confirm", {
+      method: "PUT",
+      body: JSON.stringify({ manualReviewResult: result, remark: "管理端人工" + label })
+    });
+    showGlobalAlert("人工" + label + "成功");
+    await loadReviewRows(state.reviewsPage.page);
+    await loadAlarmRows(state.alarmsPage.page);
+  } catch (error) {
+    showGlobalAlert("人工" + label + "失败: " + error.message);
+  }
+}
 function connectWebSocket() {
   try {
     if (!location.host) { setChip("wsStatus", "WebSocket: 已断开", "warn"); return; }
