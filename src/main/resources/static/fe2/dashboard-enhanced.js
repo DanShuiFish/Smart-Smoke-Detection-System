@@ -15,6 +15,7 @@ const state = {
   devicesPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   alarmsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   bindingsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
+  reviewsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   currentBindDeviceId: "",
 };
 const DEVICE_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{3,31}$/;
@@ -172,6 +173,31 @@ function alarmLevelClass(level) {
   if (s === "HIGH" || s === "CRITICAL") return "danger";
   if (s === "MEDIUM") return "warn";
   return "info";
+}
+function formatReviewResult(result) {
+  var s = String(result || "").toUpperCase();
+  if (s === "FIRE_CONFIRMED") return "AI确认火情";
+  if (s === "NO_FIRE") return "AI排除火情";
+  if (s === "UNCERTAIN") return "不确定";
+  return safeText(result, "未复核");
+}
+function formatManualReview(isManual, manualResult) {
+  if (Number(isManual) === 1) {
+    var r = String(manualResult || "").toUpperCase();
+    return r === "CONFIRMED" ? "人工确认" : (r === "DISMISSED" ? "人工驳回" : "已复核");
+  }
+  return "待复核";
+}
+function reviewResultClass(result) {
+  var s = String(result || "").toUpperCase();
+  if (s === "FIRE_CONFIRMED") return "danger";
+  if (s === "NO_FIRE") return "ok";
+  return "warn";
+}
+function manualReviewClass(isManual, manualResult) {
+  if (Number(isManual) !== 1) return "warn";
+  var r = String(manualResult || "").toUpperCase();
+  return r === "CONFIRMED" ? "ok" : "info";
 }
 function deviceStatusClass(status) {
   const s = String(status || "").toUpperCase();
@@ -1295,6 +1321,24 @@ async function loadAlarmRows(page = state.alarmsPage.page || 1) {
     renderAlarmPagination();
   } catch (error) {
     showGlobalAlert("告警数据加载失败: " + error.message);
+  }
+}
+async function loadReviewRows(page) {
+  if (!page) page = state.reviewsPage.page || 1;
+  var alarmId = safeText(el("reviewFilterAlarmId") && el("reviewFilterAlarmId").value, "").trim();
+  var deviceId = safeText(el("reviewFilterDeviceId") && el("reviewFilterDeviceId").value, "").trim();
+  var result = safeText(el("reviewFilterResult") && el("reviewFilterResult").value, "").trim();
+  var query = "?page=" + page + "&pageSize=" + state.reviewsPage.pageSize;
+  if (alarmId) query += "&alarmId=" + encodeURIComponent(alarmId);
+  if (deviceId) query += "&deviceId=" + encodeURIComponent(deviceId);
+  if (result) query += "&result=" + encodeURIComponent(result);
+  try {
+    var data = await apiRequest("/ai-reviews" + query);
+    state.reviewsPage = normalizePageResult(data, page, state.reviewsPage.pageSize);
+    renderReviewTable();
+    renderReviewPagination();
+  } catch (error) {
+    showGlobalAlert("AI复核记录加载失败: " + error.message);
   }
 }
 function connectWebSocket() {
