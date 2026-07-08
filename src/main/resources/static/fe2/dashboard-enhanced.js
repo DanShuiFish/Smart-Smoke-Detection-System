@@ -291,6 +291,7 @@ function switchView(view) {
     analysis: ["数据分析", "趋势分析、类型占比与楼栋分布"],
     ai: ["AI 智能问答", "知识问答与火情研判"],
     alarms: ["告警日志", "告警记录、确认和处置流程"],
+    reviews: ["AI 视觉复核", "查看 AI 火焰/烟雾识别结果，支持人工复核确认"],
   };
   const pair = map[view] || map.screen;
   const title = el("viewTitle");
@@ -299,6 +300,7 @@ function switchView(view) {
   if (title) title.textContent = pair[0];
   if (subtitle) subtitle.textContent = pair[1];
   if (banner) banner.textContent = pair[0];
+  if (view === "reviews") { loadReviewRows(1); }
   setTimeout(resizeVisibleCharts, 80);
 }
 function initMenus() {
@@ -1586,6 +1588,23 @@ function bindEvents() {
   const logDrawerMask = el("logDrawerMask"); if (logDrawerMask) logDrawerMask.addEventListener("click", closeLogDrawer);
   // 绑定弹窗
   const bindForm = el("bindForm"); if (bindForm) bindForm.addEventListener("submit", submitBindForm);
+  // ------ AI复核页面事件 ------
+  var btnRefreshReviews = el("btnRefreshReviews");
+  var btnSearchReviews = el("btnSearchReviews");
+  var btnResetReviews = el("btnResetReviews");
+  if (btnRefreshReviews) btnRefreshReviews.addEventListener("click", function() { loadReviewRows(1); });
+  if (btnSearchReviews) btnSearchReviews.addEventListener("click", function() { loadReviewRows(1); });
+  if (btnResetReviews) btnResetReviews.addEventListener("click", function() {
+    if (el("reviewFilterAlarmId")) el("reviewFilterAlarmId").value = "";
+    if (el("reviewFilterDeviceId")) el("reviewFilterDeviceId").value = "";
+    if (el("reviewFilterResult")) el("reviewFilterResult").value = "";
+    loadReviewRows(1);
+  });
+
+  // 筛选输入框回车键支持
+  [el("reviewFilterAlarmId"), el("reviewFilterDeviceId")].forEach(function(node) {
+    if (node) node.addEventListener("keydown", function(event) { if (event.key === "Enter") loadReviewRows(1); });
+  });
   bindQuickQs();
   document.addEventListener("click", (event) => {
     const modal = el("detailModal");
