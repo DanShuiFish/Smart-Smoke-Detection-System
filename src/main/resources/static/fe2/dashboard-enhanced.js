@@ -654,18 +654,46 @@ async function showDeviceDetail(id) {
     showGlobalAlert("设备详情加载失败: " + error.message);
   }
 }
-function showAlarmDetail(id) {
-  const item = (state.alarmsPage.records || []).find((row) => String(row.id) === String(id));
-  if (!item) return;
-  openDetailModal("告警详情", [
-    { label: "告警类型", value: safeText(item.alarmType, "--") },
-    { label: "告警等级", value: safeText(item.alarmLevel, "--") },
-    { label: "告警状态", value: safeText(item.alarmStatus, "--") },
-    { label: "设备", value: safeText(item.deviceId, "--") },
-    { label: "楼栋", value: safeText(item.locationBuilding || item.building, "--") },
-    { label: "时间", value: safeText(item.createTime || item.alarmTime || item.time, "--") },
-    { label: "告警内容", value: safeText(item.alarmContent || item.content || item.remark, "--"), full: true },
-  ]);
+async function showAlarmDetail(id) {
+  try {
+    var item = await apiRequest("/alarms/" + id);
+    var aiReview = item.aiReview || null;
+    var rows = [
+      { label: "告警ID", value: safeText(item.id, "--") },
+      { label: "告警编号", value: safeText(item.alarmCode, "--") },
+      { label: "告警类型", value: formatAlarmType(item.alarmType) },
+      { label: "告警等级", value: formatAlarmLevel(item.alarmLevel) },
+      { label: "告警状态", value: formatAlarmStatus(item.alarmStatus) },
+      { label: "设备ID", value: safeText(item.deviceId, "--") },
+      { label: "传感器数据ID", value: safeText(item.sensorDataId, "--") },
+      { label: "烟雾浓度", value: item.smokeConcentration != null ? Number(item.smokeConcentration).toFixed(2) + " mg/m³" : "--" },
+      { label: "阈值", value: item.thresholdValue != null ? Number(item.thresholdValue).toFixed(2) + " mg/m³" : "--" },
+      { label: "确认方式", value: safeText(item.confirmMethod, "--") },
+      { label: "告警时间", value: safeText(item.alarmTime, "--") },
+      { label: "确认时间", value: safeText(item.confirmTime, "--") },
+      { label: "处置时间", value: safeText(item.resolveTime, "--") },
+      { label: "处置详情", value: safeText(item.resolveDetail, "--") },
+      { label: "是否已视觉复核", value: Number(item.isVisionReviewed) === 1 ? "是" : "否" },
+      { label: "是否已广播", value: Number(item.isBroadcastSent) === 1 ? "是" : "否" },
+      { label: "备注", value: safeText(item.remark, "--"), full: true },
+    ];
+    // 追加 AI 复核信息
+    if (aiReview) {
+      rows.push(
+        { label: "── AI复核结果 ──", value: "", full: true },
+        { label: "AI判定", value: formatReviewResult(aiReview.reviewResult) },
+        { label: "AI置信度", value: aiReview.confidence != null ? Number(aiReview.confidence).toFixed(1) + "%" : "--" },
+        { label: "人工复核", value: formatManualReview(aiReview.isManualReview, aiReview.manualReviewResult) },
+        { label: "人工结果", value: safeText(aiReview.manualReviewResult, "--") },
+        { label: "图像路径", value: safeText(aiReview.imageUrl, "--") }
+      );
+    } else {
+      rows.push({ label: "── AI复核 ──", value: "未触发视觉复核", full: true });
+    }
+    openDetailModal("告警详情 #" + id, rows);
+  } catch (error) {
+    showGlobalAlert("告警详情加载失败: " + error.message);
+  }
 }
 
 function renderDevicesTable() {
