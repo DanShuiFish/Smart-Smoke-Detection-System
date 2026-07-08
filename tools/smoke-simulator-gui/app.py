@@ -96,6 +96,7 @@ class SmokeSimulatorApp:
         self.mode_var = tk.StringVar(value=ui_cfg["last_mode"])
         self.status_var = tk.StringVar(value="未连接")
         self.selected_device_code_var = tk.StringVar(value=ui_cfg["last_device_code"])
+        self._device_check_vars: dict[str, tk.BooleanVar] = {}  # device_code → 勾选状态
 
         self.smoke_var = tk.StringVar(value=str(defaults["smoke"]))
         self.temp_var = tk.StringVar(value=str(defaults["temp"]))
@@ -191,23 +192,28 @@ class SmokeSimulatorApp:
 
         self.device_tree = ttk.Treeview(
             device_frame,
-            columns=("code", "name", "location"),
+            columns=("check", "code", "name", "location"),
             show="headings",
             height=14,
         )
+        self.device_tree.heading("check", text="☑")
         self.device_tree.heading("code", text="设备编码")
         self.device_tree.heading("name", text="设备名称")
         self.device_tree.heading("location", text="位置")
+        self.device_tree.column("check", width=40, anchor="center")
         self.device_tree.column("code", width=110, anchor="center")
         self.device_tree.column("name", width=180, anchor="w")
-        self.device_tree.column("location", width=180, anchor="w")
+        self.device_tree.column("location", width=160, anchor="w")
         self.device_tree.grid(row=0, column=0, sticky="nsew")
         self.device_tree.bind("<<TreeviewSelect>>", self.on_device_select)
+        self.device_tree.bind("<Button-1>", self.on_tree_click)
 
         device_buttons = ttk.Frame(device_frame)
         device_buttons.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         for idx, (text, command) in enumerate(
             [
+                ("全选", self.select_all_devices),
+                ("取消全选", self.deselect_all_devices),
                 ("新增设备", self.open_add_device),
                 ("编辑设备", self.open_edit_device),
                 ("删除设备", self.delete_device),
@@ -301,12 +307,16 @@ class SmokeSimulatorApp:
             self.device_tree.delete(item)
 
         for device in self.devices:
+            code = device["device_code"]
+            if code not in self._device_check_vars:
+                self._device_check_vars[code] = tk.BooleanVar(value=False)
+            checked = "☑" if self._device_check_vars[code].get() else "☐"
             location = f"{device['building']} / {device['floor']} / {device['room']}"
             self.device_tree.insert(
                 "",
                 "end",
-                iid=device["device_code"],
-                values=(device["device_code"], device["device_name"], location),
+                iid=code,
+                values=(checked, code, device["device_name"], location),
             )
 
     def restore_last_selection(self) -> None:
@@ -322,15 +332,13 @@ class SmokeSimulatorApp:
 
         self.device_tree.selection_set(code)
         self.device_tree.focus(code)
-        self.on_device_select()
+        self._show_device_detail(code)
 
-    def on_device_select(self, event=None) -> None:
-        device = self.get_selected_device()
+    def _show_device_detail(self, code: str) -> None:
+        device = self.find_device_by_code(code)
         if not device:
             self.device_detail_var.set("未选择设备")
             return
-
-        self.selected_device_code_var.set(device["device_code"])
         self.device_detail_var.set(
             f"设备编码：{device['device_code']}\n"
             f"设备名称：{device['device_name']}\n"
@@ -338,7 +346,54 @@ class SmokeSimulatorApp:
             f"房间位置：{device['room']}"
         )
 
-    def get_selected_device(self) -> dict | None:
+    def on_device_select(self, event=None) -> None:
+        if self.device_tree is None:
+            return
+        selected = self.device_tree.selection()
+        if not selected:
+            self.device_detail_var.set("未选择设备")
+            return
+        code = selected[0]
+        self.selected_device_code_var.set(code)
+        self._show_device_detail(code)
+
+    def on_tree_click(self, event) -> None:
+        """点击第一列（勾选框）切换选中状态"""
+        if self.device_tree is None:
+            return
+        region = self.device_tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        column = self.device_tree.identify_column(event.x)
+        if column != "#1":  # 第一列是勾选框
+            return
+        item = self.device_tree.identify_row(event.y)
+        if not item:
+            return
+        var = self._device_check_vars.get(item)
+        if var is not None:
+            var.set(not var.get())
+        self.refresh_device_tree()
+        # 恢复选中行
+        if item:
+            self.device_tree.selection_set(item)
+
+    def get_selected_devices(self) -> list[dict]:
+        """返回所有勾选的设备"""
+        codes = {
+            code for code, var in self._device_check_vars.items() if var.get()
+        }
+        return [d for d in self.devices if d["device_code"] in codes]
+
+    def select_all_devices(self) -> None:
+        for var in self._device_check_vars.values():
+            var.set(True)
+        self.refresh_device_tree()
+
+    def deselect_all_devices(self) -> None:
+        for var in self._device_check_vars.values():
+            var.set(False)
+        self.refresh_device_tree()
         if self.device_tree is None:
             return None
 
@@ -401,24 +456,25 @@ class SmokeSimulatorApp:
             messagebox.showerror("测试连接", str(exc))
 
     def start_mode(self) -> None:
-        device = self.get_selected_device()
-        if not device:
-            messagebox.showwarning("提示", "请先选择一个设备")
+        devices = self.get_selected_devices()
+        if not devices:
+            messagebox.showwarning("提示", "请先勾选至少一台设备")
             return
 
         try:
             config = self.build_runtime_config()
             mode = self.mode_var.get()
             if mode == "normal":
-                ok = self.core.start_normal(device, config)
+                ok = self.core.start_multi_normal(devices, config)
             elif mode == "offline":
-                ok = self.core.start_offline(device, config)
+                ok = self.core.start_offline(devices[0], config)
             else:
                 self.core.stop_running()
                 self.core.stop_event.clear()
                 ok = self.core.connect(config)
                 if ok:
-                    ok = self.core.send_alert_once(device, config)
+                    for device in devices:
+                        ok = self.core.send_alert_once(device, config)
                     self.core.disconnect()
                     self.status_var.set("未连接")
 
@@ -428,27 +484,34 @@ class SmokeSimulatorApp:
             messagebox.showerror("执行失败", str(exc))
 
     def send_once(self) -> None:
-        device = self.get_selected_device()
-        if not device:
-            messagebox.showwarning("提示", "请先选择一个设备")
+        devices = self.get_selected_devices()
+        if not devices:
+            messagebox.showwarning("提示", "请先勾选至少一台设备")
             return
 
         try:
             config = self.build_runtime_config()
-            self.core.stop_running()
-            self.core.stop_event.clear()
-            if not self.core.connect(config):
-                messagebox.showerror("发送失败", "MQTT 连接失败，请查看日志")
-                return
+            # 如果已经在正常运行中，复用现有连接；否则新建连接
+            if self.core.connected:
+                need_disconnect = False
+            else:
+                self.core.stop_event.clear()
+                if not self.core.connect(config):
+                    messagebox.showerror("发送失败", "MQTT 连接失败，请查看日志")
+                    return
+                need_disconnect = True
 
             mode = self.mode_var.get()
-            if mode == "alert":
-                ok = self.core.send_alert_once(device, config)
-            else:
-                ok = self.core.send_normal_once(device, config)
+            ok = True
+            for device in devices:
+                if mode == "alert":
+                    ok = self.core.send_alert_once(device, config) and ok
+                else:
+                    ok = self.core.send_normal_once(device, config) and ok
 
-            self.core.disconnect()
-            self.status_var.set("未连接")
+            if need_disconnect:
+                self.core.disconnect()
+                self.status_var.set("未连接")
             if not ok:
                 messagebox.showerror("发送失败", "消息发送失败，请查看日志")
         except Exception as exc:
@@ -476,9 +539,15 @@ class SmokeSimulatorApp:
         self.select_device(payload["device_code"])
 
     def open_edit_device(self) -> None:
-        current = self.get_selected_device()
+        # 取 Treeview 选中的行（非勾选）
+        if self.device_tree is None:
+            return
+        selected = self.device_tree.selection()
+        if not selected:
+            messagebox.showwarning("提示", "请先在设备列表点击一行")
+            return
+        current = self.find_device_by_code(selected[0])
         if not current:
-            messagebox.showwarning("提示", "请先选择一个设备")
             return
 
         dialog = DeviceEditorDialog(self.root, "编辑设备", current)
@@ -501,9 +570,14 @@ class SmokeSimulatorApp:
         self.select_device(dialog.result["device_code"])
 
     def delete_device(self) -> None:
-        current = self.get_selected_device()
+        if self.device_tree is None:
+            return
+        selected = self.device_tree.selection()
+        if not selected:
+            messagebox.showwarning("提示", "请先在设备列表点击一行")
+            return
+        current = self.find_device_by_code(selected[0])
         if not current:
-            messagebox.showwarning("提示", "请先选择一个设备")
             return
 
         confirmed = messagebox.askyesno("删除设备", f"确定删除设备 {current['device_code']} 吗？")
