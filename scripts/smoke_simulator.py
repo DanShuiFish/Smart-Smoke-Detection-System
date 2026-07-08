@@ -128,6 +128,7 @@ class SmokeSimulator:
         if reason_code == 0:
             self.connected = True
             print(f"[OK] 已成功连接 MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
+            self.client.subscribe("smoke/+/cmd")
         else:
             self.connected = False
             print(f"[FAIL] 连接被拒绝, reason_code={reason_code}")
@@ -135,6 +136,16 @@ class SmokeSimulator:
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
         self.connected = False
         print(f"[WARN] MQTT 连接断开, reason_code={reason_code}")
+
+    def _on_message(self, client, userdata, msg):
+        """MQTT 消息回调 - 接收广播指令"""
+        try:
+            payload = json.loads(msg.payload.decode())
+            device_code = msg.topic.split("/")[1]
+            content = payload.get("content", payload.get("cmd", "无内容"))
+            print(f"\n[模拟器 {device_code}] 收到广播指令: {content}\n")
+        except Exception as e:
+            print(f"\n[ERR] 解析广播消息失败: {e}\n")
 
     def _connect(self, timeout=5):
         """阻塞式连接 MQTT Broker，确认连上才返回"""
@@ -145,6 +156,7 @@ class SmokeSimulator:
             self.client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
+            self.client.on_message = self._on_message
 
             print(f"[...] 正在连接 {MQTT_BROKER}:{MQTT_PORT} ...")
             self.client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)

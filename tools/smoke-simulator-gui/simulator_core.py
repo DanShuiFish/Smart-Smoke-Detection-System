@@ -53,12 +53,23 @@ class SmokeSimulatorCore:
         self.connected = reason_code == 0
         if self.connected:
             self._log(f"MQTT 已连接，broker={client._host}:{client._port}")
+            client.subscribe("smoke/+/cmd")
         else:
             self._log(f"MQTT 连接失败，reason_code={reason_code}")
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties) -> None:
         self.connected = False
         self._log(f"MQTT 已断开，reason_code={reason_code}")
+
+    def _on_message(self, client, userdata, msg) -> None:
+        """MQTT message callback - receive broadcast commands"""
+        try:
+            payload = json.loads(msg.payload.decode())
+            device_code = msg.topic.split("/")[1]
+            content = payload.get("content", payload.get("cmd", "无内容"))
+            self._log(f"收到广播指令 [{device_code}]: {content}")
+        except Exception as e:
+            self._log(f"解析广播消息失败: {e}")
 
     def connect(self, config: SimulatorConfig, timeout: float = 5.0) -> bool:
         if self.connected and self.client is not None:
@@ -75,6 +86,7 @@ class SmokeSimulatorCore:
 
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
+            self.client.on_message = self._on_message
 
             self._log(f"正在连接 MQTT：{config.broker}:{config.port}")
             self.client.connect(config.broker, config.port, keepalive=60)

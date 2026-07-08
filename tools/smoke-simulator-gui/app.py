@@ -95,6 +95,7 @@ class SmokeSimulatorApp:
         self.use_random_var = tk.BooleanVar(value=defaults["use_random"])
         self.mode_var = tk.StringVar(value=ui_cfg["last_mode"])
         self.status_var = tk.StringVar(value="未连接")
+        self.broadcast_notify_var = tk.StringVar(value="")
         self.selected_device_code_var = tk.StringVar(value=ui_cfg["last_device_code"])
         self._device_check_vars: dict[str, tk.BooleanVar] = {}  # device_code → 勾选状态
 
@@ -140,6 +141,12 @@ class SmokeSimulatorApp:
                 self.log_text.see("end")
                 self.log_text.configure(state="disabled")
 
+                if "收到广播指令" in message:
+                    # Extract device code and show notification
+                    parts = message.split("收到广播指令")[1].strip() if "收到广播指令" in message else ""
+                    self.broadcast_notify_var.set(f"收到广播: {parts}")
+                    self.root.after(4000, lambda: self.broadcast_notify_var.set(""))
+
                 if "已连接" in message:
                     self.status_var.set("已连接")
                 elif "连接失败" in message or "连接超时" in message or "已断开" in message or "连接异常" in message:
@@ -173,6 +180,16 @@ class SmokeSimulatorApp:
         ttk.Label(header, textvariable=self.status_var, foreground="#1d4ed8").grid(
             row=0, column=11, sticky="w", padx=6, pady=4
         )
+        # Broadcast notification bar
+        self.broadcast_notify_label = ttk.Label(
+            header,
+            textvariable=self.broadcast_notify_var,
+            foreground="#dc2626",
+            font=("", 9, "bold"),
+            anchor="center",
+            padding=4,
+        )
+        self.broadcast_notify_label.grid(row=1, column=0, columnspan=12, sticky="ew", padx=4, pady=(0, 4))
 
         content = ttk.Panedwindow(self.root, orient="horizontal")
         content.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
