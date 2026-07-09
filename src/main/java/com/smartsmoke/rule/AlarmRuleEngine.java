@@ -16,6 +16,7 @@ import com.smartsmoke.service.AlarmRecordService;
 import com.smartsmoke.service.BroadcastService;
 import com.smartsmoke.service.SensorDataService;
 import com.smartsmoke.websocket.AlarmWebSocket;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Random;
 
+@Slf4j
 @Component
 public class AlarmRuleEngine {
 
