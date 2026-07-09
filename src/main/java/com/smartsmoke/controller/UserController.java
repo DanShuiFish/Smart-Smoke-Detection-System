@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -108,5 +109,16 @@ public class UserController {
         user.setPassword(BCrypt.hashpw(newPwd));
         userService.updateById(user);
         return Result.success();
+    }
+
+    // 11.8 用户简要列表（下拉框用：id + realName + role）
+    @GetMapping("/simple")
+    public Result<List<SysUser>> simpleList() {
+        LambdaQueryWrapper<SysUser> qw = new LambdaQueryWrapper<>();
+        qw.eq(SysUser::getStatus, "ENABLED")
+                .eq(SysUser::getIsDeleted, 0)
+                .select(SysUser::getId, SysUser::getRealName, SysUser::getRole, SysUser::getUsername);
+        qw.orderByAsc(SysUser::getId);
+        return Result.success(userService.list(qw));
     }
 }

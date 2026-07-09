@@ -53,12 +53,23 @@ class SmokeSimulatorCore:
         self.connected = reason_code == 0
         if self.connected:
             self._log(f"MQTT 已连接，broker={client._host}:{client._port}")
+            client.subscribe("smoke/+/cmd")
         else:
             self._log(f"MQTT 连接失败，reason_code={reason_code}")
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties) -> None:
         self.connected = False
         self._log(f"MQTT 已断开，reason_code={reason_code}")
+
+    def _on_message(self, client, userdata, msg) -> None:
+        """MQTT message callback - receive broadcast commands"""
+        try:
+            payload = json.loads(msg.payload.decode())
+            device_code = msg.topic.split("/")[1]
+            content = payload.get("content", payload.get("cmd", "无内容"))
+            self._log(f"收到广播指令 [{device_code}]: {content}")
+        except Exception as e:
+            self._log(f"解析广播消息失败: {e}")
 
     def connect(self, config: SimulatorConfig, timeout: float = 5.0) -> bool:
         if self.connected and self.client is not None:
@@ -75,6 +86,7 @@ class SmokeSimulatorCore:
 
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
+            self.client.on_message = self._on_message
 
             self._log(f"正在连接 MQTT：{config.broker}:{config.port}")
             self.client.connect(config.broker, config.port, keepalive=60)
@@ -190,6 +202,12 @@ class SmokeSimulatorCore:
             self.build_alert_payload(device, config),
         )
 
+    def send_heartbeat_once(self, device: dict, config: SimulatorConfig) -> bool:
+        return self.publish(
+            f"smoke/{device['device_code']}/heartbeat",
+            self.build_heartbeat_payload(device, config),
+        )
+
     def _heartbeat_loop(self, device: dict, config: SimulatorConfig) -> None:
         while self.running and not self.stop_event.is_set():
             self.publish(
@@ -219,26 +237,50 @@ class SmokeSimulatorCore:
         self.running = False
 
     def start_normal(self, device: dict, config: SimulatorConfig) -> bool:
+        """单设备正常模式（保留兼容）"""
+        return self._start_normal_devices([device], config)
+
+    def start_multi_normal(self, devices: list[dict], config: SimulatorConfig) -> bool:
+        """多设备正常模式 — 每个设备独立线程并发发送"""
+        return self._start_normal_devices(devices, config)
+
+    def _start_normal_devices(self, devices: list[dict], config: SimulatorConfig) -> bool:
         self.stop_running()
         self.stop_event.clear()
         if not self.connect(config):
             return False
 
         self.running = True
-        self.worker_thread = threading.Thread(
-            target=self._normal_loop,
-            args=(device, config),
-            daemon=True,
-        )
+        # 每台设备独立的数据发送线程
+        for device in devices:
+            t = threading.Thread(
+                target=self._normal_loop,
+                args=(device, config),
+                daemon=True,
+            )
+            t.start()
+            self._log(f"正常模式线程已启动，设备={device['device_code']}")
+
+        # 单心跳线程负责所有设备
         self.heartbeat_thread = threading.Thread(
-            target=self._heartbeat_loop,
-            args=(device, config),
+            target=self._heartbeat_multi_loop,
+            args=(devices, config),
             daemon=True,
         )
-        self.worker_thread.start()
         self.heartbeat_thread.start()
-        self._log(f"正常模式已启动，设备={device['device_code']}")
+        self._log(f"多设备正常模式已启动，共 {len(devices)} 台")
         return True
+
+    def _heartbeat_multi_loop(self, devices: list[dict], config: SimulatorConfig) -> None:
+        """多设备心跳循环"""
+        while self.running and not self.stop_event.is_set():
+            for device in devices:
+                self.publish(
+                    f"smoke/{device['device_code']}/heartbeat",
+                    self.build_heartbeat_payload(device, config),
+                )
+            if self.stop_event.wait(config.heartbeat_interval):
+                break
 
     def start_offline(self, device: dict, config: SimulatorConfig) -> bool:
         self.stop_running()

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>【居民端】智慧烟感预警系统</title>
+  <link rel="stylesheet" href="/user/user.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- ===== 侧边栏 ===== -->
+    <aside class="sidebar" aria-label="用户端导航">
+      <div class="sidebar-brand">
+        <div class="brand-mark">智慧烟感</div>
+        <div class="brand-copy">
+          <strong>智慧烟感</strong>
+          <span>居民端</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav" aria-label="主导航">
+        <button class="nav-btn active" data-view="dashboard" title="仪表盘">
+          <span class="nav-icon">📊</span>
+          <span class="nav-text">仪表盘</span>
+        </button>
+        <button class="nav-btn" data-view="devices" title="我的设备">
+          <span class="nav-icon">📡</span>
+          <span class="nav-text">我的设备</span>
+        </button>
+        <button class="nav-btn" data-view="alarms" title="告警记录">
+          <span class="nav-icon">🔔</span>
+          <span class="nav-text">告警记录</span>
+        </button>
+        <button class="nav-btn" data-view="ai" title="AI 问答">
+          <span class="nav-icon">🤖</span>
+          <span class="nav-text">AI 问答</span>
+        </button>
+        <button class="nav-btn" data-view="profile" title="个人中心">
+          <span class="nav-icon">👤</span>
+          <span class="nav-text">个人中心</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- ===== 主区域 ===== -->
+    <main class="workspace">
+      <!-- 顶部栏 -->
+      <header class="topbar">
+        <div class="title-block">
+          <p class="page-kicker">消防住户端 <span class="endpoint-badge resident">居民侧</span></p>
+          <h2 id="viewTitle">首页 / 仪表盘</h2>
+          <p id="viewSubTitle">我的设备概览与实时告警 <span class="endpoint-badge resident">居民端</span></p>
+        </div>
+        <div class="runtime-meta">
+          <span id="activeAlarmStatus" class="chip warn">待处理告警: 0</span>
+          <span id="systemLastSync" class="chip">最近同步: --</span>
+          <span class="chip ok">访问端: 居民端</span>
+          <span class="chip" id="residentDeviceSummary">我的设备: 0</span>
+          <span id="clock" class="clock">--:--:--</span>
+          <span class="user-info">
+            <span class="user-avatar" id="userAvatar">👤</span>
+            <span class="user-name" id="userName">--</span>
+          </span>
+          <button class="btn ghost" id="btnLogout" title="退出登录" type="button">退出登录</button>
+        </div>
+      </header>
+
+      <!-- 全局告警提示条 -->
+      <div id="globalAlert" class="global-alert hidden"></div>
+
+      <!-- ====== 视图：仪表盘 ====== -->
+      <section id="view-dashboard" class="view active">
+        <!-- KPI 卡片 -->
+        <div class="kpi-grid">
+          <article class="kpi-card">
+            <h3>我的设备</h3>
+            <strong id="kpiTotalDevices">0</strong>
+            <span class="kpi-sub">台</span>
+          </article>
+          <article class="kpi-card">
+            <h3>在线设备</h3>
+            <strong id="kpiOnlineDevices">0</strong>
+            <span class="kpi-sub">台</span>
+          </article>
+          <article class="kpi-card">
+            <h3>今日告警</h3>
+            <strong id="kpiTodayAlarms">0</strong>
+            <span class="kpi-sub">次</span>
+          </article>
+          <article class="kpi-card danger">
+            <h3>待处理告警</h3>
+            <strong id="kpiPendingAlarms">0</strong>
+            <span class="kpi-sub">条</span>
+          </article>
+        </div>
+
+        <!-- 实时监测 + 最近告警 -->
+        <div class="panel-grid dashboard-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h3>实时烟雾浓度</h3>
+              <select id="dashDeviceSelect"></select>
+            </div>
+            <div id="dashSmokeValue" class="big-value">--</div>
+            <div class="big-unit">mg/m³</div>
+            <div class="sensor-row">
+              <div class="sensor-item">
+                <span class="sensor-label">温度</span>
+                <span class="sensor-value" id="dashTempValue">-- ℃</span>
+              </div>
+              <div class="sensor-item">
+                <span class="sensor-label">湿度</span>
+                <span class="sensor-value" id="dashHumiValue">-- %</span>
+              </div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-header"><h3>最近告警</h3></div>
+            <ul id="dashAlarmList" class="list">
+              <li class="empty-state">
+                <strong>暂无告警</strong>
+                <p>您的设备运行正常</p>
+              </li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="panel" style="margin-top:12px;">
+          <div class="panel-header">
+            <h3>24小时烟雾浓度趋势</h3>
+            <select id="trendDeviceSelect"></select>
+          </div>
+          <div id="chartTrend" class="chart"></div>
+        </div>
+      </section>
+
+      <!-- ====== 视图：我的设备 ====== -->
+      <section id="view-devices" class="view">
+        <div class="module-heading">
+          <div>
+            <h3>我的设备</h3>
+            <p>查看已绑定设备的实时状态和历史趋势</p>
+          </div>
+          <button class="btn btn-main" id="btnRefreshDevices">刷新</button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>设备名称</th>
+                  <th>设备编号</th>
+                  <th>楼栋</th>
+                  <th>楼层</th>
+                  <th>状态</th>
+                  <th>烟雾(mg/m³)</th>
+                  <th>温度</th>
+                  <th>趋势</th>
+                </tr>
+              </thead>
+              <tbody id="deviceTableBody"></tbody>
+            </table>
+          </div>
+          <div id="devicePagination" class="pagination-bar"></div>
+        </div>
+
+      </section>
+
+      <!-- ====== 视图：告警记录 ====== -->
+      <section id="view-alarms" class="view">
+        <div class="module-heading">
+          <div>
+            <h3>告警记录</h3>
+            <p>查看关联设备的告警历史</p>
+          </div>
+          <div class="toolbar">
+            <select id="alarmStatusFilter">
+              <option value="">全部状态</option>
+              <option value="PENDING">待处理</option>
+              <option value="CONFIRMING">确认中</option>
+              <option value="CONFIRMED">已确认</option>
+              <option value="RESOLVED">已处置</option>
+              <option value="ARCHIVED">已归档</option>
+              <option value="CLOSED">已关闭</option>
+            </select>
+            <button class="btn btn-main" id="btnLoadAlarms">查询</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>告警类型</th>
+                  <th>等级</th>
+                  <th>状态</th>
+                  <th>设备</th>
+                  <th>详情</th>
+                </tr>
+              </thead>
+              <tbody id="alarmTableBody"></tbody>
+            </table>
+          </div>
+          <div id="alarmPagination" class="pagination-bar"></div>
+        </div>
+      </section>
+
+      <!-- ====== 视图：AI 智能问答 ====== -->
+      <section id="view-ai" class="view">
+        <div class="panel-grid ai-grid">
+          <article class="panel chat-panel-full">
+            <div class="panel-header">
+              <h3>消防知识智能问答</h3>
+              <button class="btn btn-ghost" id="btnClearChat" style="color:var(--danger);">清除对话</button>
+            </div>
+            <div id="chatLog" class="chat-log">
+              <div class="chat-empty-state" id="chatEmpty">
+                <span class="empty-icon">💬</span>
+                <strong>您好！我是智慧烟感智能助手</strong>
+                <p>您可以向我询问火灾预防、应急逃生、设备使用等问题</p>
+                <div class="quick-qs">
+                  <span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span>
+                  <span data-q="烟雾报警器响了怎么办？">烟雾报警器响了怎么办？</span>
+                  <span data-q="如何进行家庭火灾隐患排查？">如何进行家庭火灾隐患排查？</span>
+                  <span data-q="灭火器怎么使用？">灭火器怎么使用？</span>
+                </div>
+              </div>
+            </div>
+            <div class="chat-input-row">
+              <textarea id="chatInput" placeholder="输入您的问题..." rows="2"></textarea>
+              <button class="btn btn-main" id="btnSendQuestion">发送</button>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-header"><h3>对话信息</h3></div>
+            <div class="model-stats">
+              <div class="stat-row">
+                <span class="stat-label">会话 ID</span>
+                <span class="stat-value" id="chatSessionId">--</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">本轮消息数</span>
+                <span class="stat-value" id="chatMsgCount">0</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">AI 模型</span>
+                <span class="stat-value">MaxKB / RAG</span>
+              </div>
+            </div>
+            <div id="chatHistoryList" style="margin-top:14px; max-height:300px; overflow-y:auto;">
+              <p style="color:var(--muted);font-size:12px;text-align:center;">历史对话将显示在这里</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ====== 视图：个人中心 ====== -->
+      <section id="view-profile" class="view">
+        <div class="panel-grid profile-grid">
+          <!-- 修改资料 -->
+          <article class="panel">
+            <div class="panel-header"><h3>个人资料</h3></div>
+            <form id="profileForm" class="profile-form">
+              <div class="form-group">
+                <label>用户名</label>
+                <input type="text" id="profileUsername" disabled />
+              </div>
+              <div class="form-group">
+                <label>真实姓名</label>
+                <input type="text" id="profileRealName" />
+              </div>
+              <div class="form-group">
+                <label>手机号</label>
+                <input type="text" id="profilePhone" />
+              </div>
+              <div class="form-group">
+                <label>邮箱</label>
+                <input type="text" id="profileEmail" />
+              </div>
+              <div class="form-group">
+                <label>角色</label>
+                <input type="text" id="profileRole" disabled />
+              </div>
+              <div class="form-error" id="profileError"></div>
+              <div class="form-success" id="profileSuccess"></div>
+              <button type="submit" class="btn btn-main" style="width:100%;">保存修改</button>
+            </form>
+          </article>
+          <!-- 修改密码 -->
+          <article class="panel">
+            <div class="panel-header"><h3>修改密码</h3></div>
+            <form id="passwordForm" class="profile-form">
+              <div class="form-group">
+                <label>旧密码</label>
+                <input type="password" id="oldPassword" placeholder="输入旧密码" required />
+              </div>
+              <div class="form-group">
+                <label>新密码</label>
+                <input type="password" id="newPassword" placeholder="至少6位" required minlength="6" />
+              </div>
+              <div class="form-group">
+                <label>确认新密码</label>
+                <input type="password" id="newPasswordConfirm" placeholder="再次输入新密码" required />
+              </div>
+              <div class="form-error" id="passwordError"></div>
+              <div class="form-success" id="passwordSuccess"></div>
+              <button type="submit" class="btn btn-main" style="width:100%;">修改密码</button>
+            </form>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===== 模态框：设备详情 / 告警详情 ===== -->
+      <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-mask" data-modal-close="true"></div>
+        <div class="modal-panel">
+          <div class="modal-header">
+            <h3 id="detailModalTitle">详情</h3>
+            <button class="btn" type="button" data-modal-close="true">关闭</button>
+          </div>
+          <div id="detailModalBody" class="modal-body"></div>
+        </div>
+      </div>
+
+      <!-- 底部状态栏 -->
+      <footer class="dashboard-footer">
+        <span>系统版本: v2.0</span>
+        <span>居民端</span>
+        <span id="footerSyncTime">最后同步: --</span>
+        <span>© 2026 智慧烟感预警系统</span>
+      </footer>
+    </main>
+  </div>
+
+  <script src="/user/user.js"></script>
+</body>
+</html>
