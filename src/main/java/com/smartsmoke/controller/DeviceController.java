@@ -19,6 +19,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.stream.Collectors;
+import java.util.LinkedHashMap;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -210,5 +215,85 @@ public class DeviceController {
         if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权批量删除设备");
         deviceService.removeByIds(request.getIds());
         return Result.success();
+    }
+    @GetMapping("/building-tree")
+    public Result<Map<String, Object>> buildingTree() {
+        List<SmokeDevice> devices = deviceService.lambdaQuery()
+                .eq(SmokeDevice::getIsDeleted, 0)
+                .orderByAsc(SmokeDevice::getSortOrder)
+                .list();
+
+        Map<String, Map<String, List<SmokeDevice>>> grouped = new LinkedHashMap<>();
+        for (SmokeDevice d : devices) {
+            String building = (d.getLocationBuilding() != null && !d.getLocationBuilding().isBlank())
+                    ? d.getLocationBuilding().trim() : "未分类楼栋";
+            String floor = (d.getLocationFloor() != null && !d.getLocationFloor().isBlank())
+                    ? d.getLocationFloor().trim() : "未分类楼层";
+            grouped.computeIfAbsent(building, k -> new LinkedHashMap<>())
+                    .computeIfAbsent(floor, k2 -> new ArrayList<>())
+                    .add(d);
+        }
+
+        List<Long> deviceIds = devices.stream().map(SmokeDevice::getId).collect(Collectors.toList());
+        Map<Long, SensorData> latestSensorMap = new HashMap<>();
+        if (!deviceIds.isEmpty()) {
+            List<SensorData> latestList = sensorDataMapper.selectList(
+                    new LambdaQueryWrapper<SensorData>()
+                            .in(SensorData::getDeviceId, deviceIds)
+                            .orderByDesc(SensorData::getCreateTime));
+            for (SensorData sd : latestList) {
+                latestSensorMap.putIfAbsent(sd.getDeviceId(), sd);
+            }
+        }
+
+        List<Map<String, Object>> buildings = new ArrayList<>();
+        for (Map.Entry<String, Map<String, List<SmokeDevice>>> bEntry : grouped.entrySet()) {
+            Map<String, List<SmokeDevice>> floorMap = bEntry.getValue();
+            int bTotal = 0, bOnline = 0, bOffline = 0, bError = 0;
+            List<Map<String, Object>> floors = new ArrayList<>();
+            for (Map.Entry<String, List<SmokeDevice>> fEntry : floorMap.entrySet()) {
+                List<SmokeDevice> floorDevs = fEntry.getValue();
+                int fTotal = floorDevs.size();
+                int fOnline = (int) floorDevs.stream().filter(d -> "ONLINE".equals(d.getStatus())).count();
+                floors.add(Map.of("name", fEntry.getKey(), "total", fTotal, "online", fOnline));
+                bTotal += fTotal;
+                bOnline += fOnline;
+                bOffline += (int) floorDevs.stream().filter(d -> "OFFLINE".equals(d.getStatus())).count();
+                bError += (int) floorDevs.stream().filter(d -> "ERROR".equals(d.getStatus())).count();
+            }
+
+            List<Map<String, Object>> enrichedDevices = new ArrayList<>();
+            for (SmokeDevice d : bEntry.getValue().values().stream().flatMap(Collection::stream).collect(Collectors.toList())) {
+                Map<String, Object> devMap = new LinkedHashMap<>();
+                devMap.put("id", d.getId());
+                devMap.put("deviceId", d.getDeviceId());
+                devMap.put("deviceName", d.getDeviceName());
+                devMap.put("status", d.getStatus());
+                devMap.put("battery", d.getBattery());
+                devMap.put("signalStrength", d.getSignalStrength());
+                devMap.put("locationBuilding", d.getLocationBuilding());
+                devMap.put("locationFloor", d.getLocationFloor());
+                devMap.put("locationRoom", d.getLocationRoom());
+                devMap.put("lastHeartbeat", d.getLastHeartbeat());
+                SensorData sd = latestSensorMap.get(d.getId());
+                devMap.put("smokeConcentration", sd != null ? sd.getSmokeConcentration() : null);
+                devMap.put("temperature", sd != null ? sd.getTemperature() : null);
+                enrichedDevices.add(devMap);
+            }
+
+            Map<String, Object> building = new LinkedHashMap<>();
+            building.put("name", bEntry.getKey());
+            building.put("total", bTotal);
+            building.put("online", bOnline);
+            building.put("offline", bOffline);
+            building.put("error", bError);
+            building.put("floors", floors);
+            building.put("devices", enrichedDevices);
+            buildings.add(building);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("buildings", buildings);
+        return Result.success(result);
     }
 }

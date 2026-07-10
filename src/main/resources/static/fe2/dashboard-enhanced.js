@@ -1,4 +1,4 @@
-﻿const API_BASE = "/api/v1";
+const API_BASE = "/api/v1";
 const state = {
   currentView: "screen",
   aiSessionId: "",
@@ -289,6 +289,7 @@ function switchView(view) {
     alarms: ["告警日志", "告警记录、确认和处置流程"],
     reviews: ["AI 视觉复核", "查看 AI 火焰/烟雾识别结果，支持人工复核确认"],
     broadcasts: ["广播管理", "按楼栋/楼层下发广播指令，查看历史记录"],
+    viz: ["设备可视化", "楼栋 / 楼层 / 设备三级下钻，实时状态一目了然"],
   };
   const pair = map[view] || map.screen;
   const title = el("viewTitle");
@@ -299,6 +300,7 @@ function switchView(view) {
   if (banner) banner.textContent = pair[0];
   if (view === "reviews") { loadReviewRows(1); }
   if (view === "broadcasts") { loadBroadcastOptions(); loadBroadcastHistory(1); }
+  if (view === "viz") { if (window.refreshViz) window.refreshViz(); }
   setTimeout(resizeVisibleCharts, 80);
 }
 function initMenus() {
