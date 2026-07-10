@@ -105,10 +105,19 @@
     const passwordConfirm = document.getElementById('regPasswordConfirm').value;
     const realName = document.getElementById('regRealName').value.trim();
     const phone = document.getElementById('regPhone').value.trim();
-    const role = document.querySelector('input[name="regRole"]:checked').value;
+    const role = 'RESIDENT';
+    const building = document.getElementById('regBuilding').value;
+    const floor = document.getElementById('regFloor').value;
+    const room = document.getElementById('regRoom').value;
 
     if (!username || !password || !passwordConfirm) {
       registerError.textContent = '请填写必填字段';
+      setBtnLoading(btnRegister, false);
+      return;
+    }
+
+    if (!building) {
+      registerError.textContent = '请选择住址';
       setBtnLoading(btnRegister, false);
       return;
     }
@@ -132,6 +141,9 @@
         realName: realName || undefined,
         phone: phone || undefined,
         role,
+        residentBuilding: building || undefined,
+        residentFloor: floor || undefined,
+        residentRoom: room || undefined,
       });
 
       if (data.code === 200 && data.data) {
@@ -154,6 +166,32 @@
     } finally {
       setBtnLoading(btnRegister, false);
     }
+  });
+
+  // ===== 加载地址下拉框 =====
+  async function loadAddresses() {
+    const select = document.getElementById('regAddress');
+    if (!select) return;
+    try {
+      const resp = await fetch('/api/v1/auth/addresses');
+      const body = await resp.json();
+      const list = (body && body.data) || [];
+      select.innerHTML = '<option value="">-- 请选择住址 --</option>' +
+        list.map(function(a) {
+          return '<option value="' + a.building + '|' + a.floor + '|' + a.room + '">' + a.label + '</option>';
+        }).join('');
+    } catch(e) {
+      select.innerHTML = '<option value="">地址加载失败</option>';
+    }
+  }
+  loadAddresses();
+
+  // 地址选择后自动填充隐藏字段
+  document.getElementById('regAddress').addEventListener('change', function() {
+    var parts = this.value.split('|');
+    document.getElementById('regBuilding').value = parts[0] || '';
+    document.getElementById('regFloor').value = parts[1] || '';
+    document.getElementById('regRoom').value = parts[2] || '';
   });
 
   // ===== 辅助函数 =====

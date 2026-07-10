@@ -13,6 +13,7 @@ import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -41,8 +42,10 @@ public class DashboardServiceImpl implements DashboardService {
         vo.setTodayAlarms((int) alarmRecordService.count(
                 new LambdaQueryWrapper<AlarmRecord>()
                         .between(AlarmRecord::getAlarmTime, todayStart, todayEnd)));
+        // 活跃告警 = PENDING + CONFIRMING（AI复核中），排除设备离线类型
         vo.setPendingAlarms((int) alarmRecordService.count(
-                new LambdaQueryWrapper<AlarmRecord>().eq(AlarmRecord::getAlarmStatus, "PENDING")));
+                new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getAlarmStatus, "PENDING", "CONFIRMING")
+                        .ne(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")));
         vo.setConfirmedAlarms((int) alarmRecordService.count(
                 new LambdaQueryWrapper<AlarmRecord>().eq(AlarmRecord::getAlarmStatus, "CONFIRMED")));
         vo.setResolvedAlarms((int) alarmRecordService.count(
@@ -83,6 +86,62 @@ public class DashboardServiceImpl implements DashboardService {
     @Override
     public List<AlarmTrendVO> getAlarmTrend(int period) {
         return dashboardMapper.getAlarmTrend(period);
+    }
+
+    @Override
+    public DashboardStatsVO getStats(Set<Long> deviceIds) {
+        if (deviceIds == null || deviceIds.isEmpty()) return getStats();
+        DashboardStatsVO vo = new DashboardStatsVO();
+        vo.setTotalDevices(deviceIds.size());
+        vo.setOnlineDevices((int) deviceService.count(
+                new LambdaQueryWrapper<SmokeDevice>().in(SmokeDevice::getId, deviceIds).eq(SmokeDevice::getStatus, "ONLINE")));
+        vo.setOfflineDevices((int) deviceService.count(
+                new LambdaQueryWrapper<SmokeDevice>().in(SmokeDevice::getId, deviceIds).eq(SmokeDevice::getStatus, "OFFLINE")));
+        vo.setErrorDevices((int) deviceService.count(
+                new LambdaQueryWrapper<SmokeDevice>().in(SmokeDevice::getId, deviceIds).eq(SmokeDevice::getStatus, "ERROR")));
+
+        LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIN);
+        LocalDateTime todayEnd = LocalDateTime.of(LocalDate.now(), LocalTime.MAX);
+        vo.setTodayAlarms((int) alarmRecordService.count(
+                new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getDeviceId, deviceIds)
+                        .between(AlarmRecord::getAlarmTime, todayStart, todayEnd)));
+        vo.setPendingAlarms((int) alarmRecordService.count(
+                new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getDeviceId, deviceIds)
+                        .in(AlarmRecord::getAlarmStatus, "PENDING", "CONFIRMING")
+                        .ne(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")));
+        vo.setConfirmedAlarms((int) alarmRecordService.count(
+                new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getDeviceId, deviceIds)
+                        .eq(AlarmRecord::getAlarmStatus, "CONFIRMED")));
+        vo.setResolvedAlarms((int) alarmRecordService.count(
+                new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getDeviceId, deviceIds)
+                        .eq(AlarmRecord::getAlarmStatus, "RESOLVED")));
+        return vo;
+    }
+
+    @Override
+    public RealtimeVO getRealtime(int count, Set<Long> deviceIds) {
+        if (deviceIds == null || deviceIds.isEmpty()) return getRealtime(count);
+        RealtimeVO vo = new RealtimeVO();
+        vo.setLatestData(sensorDataService.lambdaQuery()
+                .in(SensorData::getDeviceId, deviceIds)
+                .orderByDesc(SensorData::getCreateTime)
+                .last("LIMIT " + count).list());
+        vo.setActiveAlarms(alarmRecordService.lambdaQuery()
+                .in(AlarmRecord::getDeviceId, deviceIds)
+                .notIn(AlarmRecord::getAlarmStatus, "ARCHIVED", "CLOSED")
+                .orderByDesc(AlarmRecord::getAlarmTime)
+                .list());
+        Map<String, Integer> statusMap = new HashMap<>();
+        statusMap.put("ONLINE", (int) deviceService.count(
+                new LambdaQueryWrapper<SmokeDevice>().in(SmokeDevice::getId, deviceIds).eq(SmokeDevice::getStatus, "ONLINE")));
+        statusMap.put("OFFLINE", (int) deviceService.count(
+                new LambdaQueryWrapper<SmokeDevice>().in(SmokeDevice::getId, deviceIds).eq(SmokeDevice::getStatus, "OFFLINE")));
+        statusMap.put("ERROR", (int) deviceService.count(
+                new LambdaQueryWrapper<SmokeDevice>().in(SmokeDevice::getId, deviceIds).eq(SmokeDevice::getStatus, "ERROR")));
+        statusMap.put("INACTIVE", (int) deviceService.count(
+                new LambdaQueryWrapper<SmokeDevice>().in(SmokeDevice::getId, deviceIds).eq(SmokeDevice::getStatus, "INACTIVE")));
+        vo.setDeviceStatusMap(statusMap);
+        return vo;
     }
 
     @Override

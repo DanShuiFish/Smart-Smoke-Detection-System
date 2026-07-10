@@ -14,9 +14,7 @@ const state = {
   analysis: { alarmTrend: [], alarmSample: [], deviceStats: [] },
   devicesPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   alarmsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
-  bindingsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   reviewsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
-  currentBindDeviceId: "",
 };
 const DEVICE_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{3,31}$/;
 
@@ -270,11 +268,9 @@ function buildBroadcastDraft() {
 }
 
 function updateBroadcastButtonState() {
+  // 区域广播无需依赖活跃告警，始终可用
   const btn = document.getElementById("btnBroadcast");
-  if (!btn) return;
-  const draft = buildBroadcastDraft();
-  btn.disabled = !draft;
-  btn.title = draft ? (draft.source === "alarm" ? "将基于当前活跃告警下发广播" : "将基于 AI 分析结论下发广播") : "暂无可下发的活跃告警或 AI 分析结论";
+  if (btn) { btn.disabled = false; btn.title = "向指定楼栋/楼层的所有设备发送广播"; }
 }
 
 
@@ -292,6 +288,7 @@ function switchView(view) {
     ai: ["AI 智能问答", "知识问答与火情研判"],
     alarms: ["告警日志", "告警记录、确认和处置流程"],
     reviews: ["AI 视觉复核", "查看 AI 火焰/烟雾识别结果，支持人工复核确认"],
+    broadcasts: ["广播管理", "按楼栋/楼层下发广播指令，查看历史记录"],
   };
   const pair = map[view] || map.screen;
   const title = el("viewTitle");
@@ -301,6 +298,7 @@ function switchView(view) {
   if (subtitle) subtitle.textContent = pair[1];
   if (banner) banner.textContent = pair[0];
   if (view === "reviews") { loadReviewRows(1); }
+  if (view === "broadcasts") { loadBroadcastOptions(); loadBroadcastHistory(1); }
   setTimeout(resizeVisibleCharts, 80);
 }
 function initMenus() {
@@ -318,6 +316,7 @@ function renderScreenKpi() {
   const onlineRate = total > 0 ? ((online / total) * 100).toFixed(1) : "0.0";
   el("kpiTotalDevices").textContent = String(total);
   el("kpiOnlineDevices").textContent = String(online);
+  var offNode = el("kpiOfflineDevices"); if (offNode) offNode.textContent = String(stats.offlineDevices || 0);
   el("kpiTodayAlarms").textContent = String(today);
   el("kpiPendingAlarms").textContent = String(pending);
   const onlineRateNode = el("screenOnlineRate");
@@ -723,7 +722,7 @@ function renderDevicesTable() {
       '<td><span class="status-badge ' + deviceStatusClass(status) + '">' + escapeHtml(getDeviceStatusLabel(status)) + '</span></td>' +
       '<td>' + escapeHtml(safeText(item.battery, "--")) + '%</td>' +
       '<td>' + escapeHtml(safeText(item.signalStrength, "--")) + '%</td>' +
-      '<td><div class="table-actions"><button class="btn" data-device-edit="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">编辑</button><button class="btn danger" data-device-delete="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">删除</button><button class="btn" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button><button class="btn" data-device-bind="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">绑定</button></div></td>' +
+      '<td><div class="table-actions"><button class="btn" data-device-edit="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">编辑</button><button class="btn danger" data-device-delete="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">删除</button><button class="btn" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button></div></td>' +
       '</tr>';
   }).join("");
   body.querySelectorAll("input[data-device-check]").forEach((input) => input.addEventListener("change", () => toggleDeviceSelection(input.dataset.id, input.checked)));
@@ -738,9 +737,6 @@ function renderDevicesTable() {
   }));
   body.querySelectorAll("button[data-device-delete]").forEach((button) => button.addEventListener("click", async () => {
     await deleteDevice(button.dataset.id);
-  }));
-  body.querySelectorAll("button[data-device-bind]").forEach((button) => button.addEventListener("click", () => {
-    openBindModal(button.dataset.id);
   }));
   body.querySelectorAll("tr").forEach((row, index) => row.addEventListener("dblclick", () => showDeviceDetail(rows[index].id)));
   updateDeviceBatchHint();
@@ -890,121 +886,6 @@ function downloadDevicesCsv() {
   document.body.removeChild(link);
   URL.revokeObjectURL(link.href);
 }
-// ===== 设备绑定管理 =====
-async function openBindModal(deviceId) {
-  state.currentBindDeviceId = String(deviceId);
-  const modal = el("bindModal");
-  const title = el("bindModalTitle");
-  if (!modal || !title) return;
-  const dev = (state.devicesPage.records || []).find((item) => String(item.id) === String(deviceId));
-  title.textContent = "设备绑定 — " + (dev ? safeText(dev.deviceName || dev.deviceId, "设备") : deviceId);
-  modal.classList.remove("hidden");
-  // 加载用户下拉框
-  const userSelect = el("bindUserId");
-  if (userSelect) {
-    userSelect.innerHTML = '<option value="">加载中...</option>';
-    try {
-      const users = await apiRequest("/users/simple");
-      userSelect.innerHTML = '<option value="">-- 请选择用户 --</option>' +
-        (users || []).map((u) => '<option value="' + escapeHtml(safeText(u.id, "")) + '">' + escapeHtml(safeText(u.realName || u.username, "用户")) + ' (' + escapeHtml(safeText(u.role, "--")) + ')</option>').join("");
-    } catch (err) {
-      userSelect.innerHTML = '<option value="">加载失败，请重试</option>';
-    }
-  }
-  await loadBindings(1);
-}
-function closeBindModal() {
-  const modal = el("bindModal");
-  if (modal) modal.classList.add("hidden");
-  state.currentBindDeviceId = "";
-}
-async function loadBindings(page) {
-  const body = el("bindTableBody");
-  const pagination = el("bindPagination");
-  if (!body) return;
-  try {
-    const data = await apiRequest("/bindings?deviceId=" + state.currentBindDeviceId + "&page=" + page + "&pageSize=" + state.bindingsPage.pageSize);
-    state.bindingsPage = normalizePageResult(data, page, state.bindingsPage.pageSize);
-    renderBindTable();
-    // 分页
-    if (pagination) {
-      const pg = state.bindingsPage;
-      pagination.innerHTML = '<span class="page-info">第 ' + pg.page + ' / ' + pg.pages + ' 页，共 ' + pg.total + ' 条</span><div class="page-actions"><button class="btn" data-bind-page="prev" ' + (pg.page <= 1 ? 'disabled' : '') + '>上一页</button><button class="btn" data-bind-page="next" ' + (pg.page >= pg.pages ? 'disabled' : '') + '>下一页</button></div>';
-      pagination.querySelectorAll("button[data-bind-page]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const targetPage = btn.dataset.bindPage === "next" ? pg.page + 1 : pg.page - 1;
-          loadBindings(targetPage);
-        });
-      });
-    }
-  } catch (error) {
-    body.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>加载失败</strong><p>' + escapeHtml(error.message) + '</p></div></td></tr>';
-  }
-}
-function renderBindTable() {
-  const body = el("bindTableBody");
-  if (!body) return;
-  const rows = state.bindingsPage.records || [];
-  if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>暂无绑定记录</strong><p>该设备尚未绑定任何用户，请通过下方表单新增绑定。</p></div></td></tr>';
-    return;
-  }
-  var bindTypeLabel = { OWNER: "管理者", VIEWER: "使用者", ADMIN: "管理员" };
-  body.innerHTML = rows.map(function(item) {
-    var status = String(item.status || "--");
-    var statusClass = status === "BOUND" ? "ok" : "warn";
-    var unbindBtn = status === "BOUND"
-      ? '<button class="btn danger" data-bind-unbind="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">解绑</button>'
-      : '';
-    return '<tr>' +
-      '<td>' + escapeHtml(safeText(item.userRealName, "--")) + '</td>' +
-      '<td>' + escapeHtml(safeText(item.deviceName, "--")) + '</td>' +
-      '<td>' + escapeHtml(bindTypeLabel[item.bindType] || safeText(item.bindType, "--")) + '</td>' +
-      '<td><span class="status-badge ' + statusClass + '">' + escapeHtml(status) + '</span></td>' +
-      '<td>' + escapeHtml(safeText(item.bindTime, "--")) + '</td>' +
-      '<td><div class="table-actions">' + unbindBtn + '</div></td>' +
-      '</tr>';
-  }).join("");
-  body.querySelectorAll("button[data-bind-unbind]").forEach((btn) => btn.addEventListener("click", async () => {
-    if (!confirm("确认解绑该绑定关系？")) return;
-    try {
-      await apiRequest("/bindings/" + btn.dataset.id + "/unbind", { method: "PUT", body: JSON.stringify({ remark: "管理端解绑" }) });
-      showGlobalAlert("解绑成功");
-      await loadBindings(state.bindingsPage.page);
-    } catch (error) {
-      showGlobalAlert("解绑失败: " + error.message);
-    }
-  }));
-}
-async function submitBindForm(event) {
-  event.preventDefault();
-  const userIdInput = el("bindUserId");
-  const bindTypeInput = el("bindBindType");
-  const remarkInput = el("bindRemark");
-  const userIdVal = userIdInput ? userIdInput.value : "";
-  if (!userIdVal) {
-    showGlobalAlert("请选择用户");
-    return;
-  }
-  const userId = Number(userIdVal);
-  try {
-    await apiRequest("/bindings", {
-      method: "POST",
-      body: JSON.stringify({
-        deviceId: Number(state.currentBindDeviceId),
-        userId: userId,
-        bindType: bindTypeInput ? bindTypeInput.value : "OWNER",
-        remark: remarkInput ? remarkInput.value.trim() : "",
-      }),
-    });
-    if (userIdInput) userIdInput.value = "";
-    if (remarkInput) remarkInput.value = "";
-    showGlobalAlert("绑定成功");
-    await loadBindings(1);
-  } catch (error) {
-    showGlobalAlert("绑定失败: " + error.message);
-  }
-}
 async function batchHandleAlarms(action) {
   if (!state.selectedAlarmIds.length) return showGlobalAlert("请先选择要批量处理的告警");
   await Promise.allSettled(state.selectedAlarmIds.map((id) => handleAlarmAction(action, id)));
@@ -1104,28 +985,22 @@ async function sendQuestion() {
 }
 
 async function sendBroadcast() {
-  const draft = buildBroadcastDraft();
-  if (!draft) { showGlobalAlert("当前没有活跃告警且没有 AI 对话结论，暂无可下发的广播内容"); return; }
-  const preview = draft.content.length > 100 ? draft.content.substring(0, 100) + "..." : draft.content;
-  const prompt = draft.source === "alarm"
-    ? "确认将当前活跃告警联动为广播指令？\n\n广播区域：" + (draft.broadcastArea || "当前区域") + "\n广播内容：" + preview
-    : "确认将 AI 分析结论作为广播指令下发？\n\n分析摘要：" + preview;
-  if (!confirm(prompt)) return;
+  var building = (el("broadcastBuilding")?.value || "").trim();
+  var floor = (el("broadcastFloor")?.value || "").trim();
+  var content = (el("broadcastContent")?.value || "").trim();
+  if (!building) { showGlobalAlert("请输入楼栋"); return; }
+  if (!content) { showGlobalAlert("请输入广播内容"); return; }
+  var label = building + (floor ? floor : "全部楼层");
+  if (!confirm("确认向 " + label + " 下发广播？\n\n内容: " + content.substring(0, 100))) return;
   try {
-    const payload = {
-      alarmId: draft.alarmId,
-      deviceId: draft.deviceId,
-      broadcastArea: draft.broadcastArea,
-      broadcastContent: draft.content,
-      broadcastType: draft.broadcastType,
-      triggerMode: draft.triggerMode
-    };
-    await apiRequest("/broadcasts", { method: "POST", body: JSON.stringify(payload) });
-    showGlobalAlert(draft.source === "alarm" ? "已按当前活跃告警下发广播" : "已按 AI 分析结论下发广播");
-    addLog("success", "/api/v1/broadcasts", "广播指令已下发", 200, 0);
+    await apiRequest("/broadcasts/area", {
+      method: "POST",
+      body: JSON.stringify({ building: building, floor: floor || null, broadcastContent: content, broadcastType: "EMERGENCY", triggerMode: "MANUAL" })
+    });
+    showGlobalAlert("已向 " + label + " 下发广播");
+    addLog("success", "/api/v1/broadcasts/area", "区域广播已下发", 200, 0);
   } catch (error) {
     showGlobalAlert("广播失败: " + error.message);
-    addLog("error", "/api/v1/broadcasts", "广播失败: " + error.message, 0, 0);
   }
 }
 
@@ -1142,6 +1017,90 @@ function clearChat() {
   const tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = "—";
   renderAiJudgement();
   updateBroadcastButtonState();
+  loadConversationHistory();
+}
+
+// ===== AI 对话历史管理 =====
+
+async function loadConversationHistory() {
+  var container = el("conversationHistory");
+  if (!container) return;
+  try {
+    var data = await apiRequest("/conversations?page=1&pageSize=20");
+    var records = (data && data.records) || [];
+    if (!records.length) {
+      container.innerHTML = '<div class="empty-state"><strong>暂无对话</strong><p>发送第一条消息后在此显示</p></div>';
+      return;
+    }
+    var sessionMap = {};
+    records.forEach(function(item) {
+      if (!sessionMap[item.sessionId]) {
+        sessionMap[item.sessionId] = {
+          sessionId: item.sessionId,
+          firstQuestion: item.question ? item.question.substring(0, 30) : "无内容",
+          lastTime: item.createTime,
+          count: 1
+        };
+      } else {
+        sessionMap[item.sessionId].count++;
+        sessionMap[item.sessionId].lastTime = item.createTime;
+      }
+    });
+    var sessions = Object.values(sessionMap).sort(function(a, b) {
+      return (b.lastTime || "").localeCompare(a.lastTime || "");
+    });
+    container.innerHTML = sessions.map(function(s) {
+      var isActive = s.sessionId === state.aiSessionId;
+      return '<div class="conv-item' + (isActive ? ' active' : '') + '" data-session="' + s.sessionId + '" style="padding:8px;border-bottom:1px solid #e2e8f0;cursor:pointer;' + (isActive ? 'background:#eff6ff;' : '') + '">' +
+        '<div style="font-weight:600;font-size:13px;color:' + (isActive ? '#2563eb' : '#334155') + ';">' + escapeHtml(s.firstQuestion) + (s.count > 1 ? ' (' + s.count + '轮)' : '') + '</div>' +
+        '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">' + escapeHtml(s.lastTime || "") + (isActive ? ' · 当前' : '') + '</div>' +
+        '</div>';
+    }).join("");
+    container.querySelectorAll(".conv-item").forEach(function(el) {
+      el.addEventListener("click", function() { resumeConversation(this.dataset.session); });
+    });
+  } catch (error) {
+    container.innerHTML = '<div class="empty-state"><strong>加载失败</strong><p>' + error.message + '</p></div>';
+  }
+}
+
+async function startNewConversation() {
+  state.aiSessionId = buildSessionId();
+  var log = el("chatLog");
+  if (log) log.innerHTML = '<div class="chat-empty-state" id="chatEmpty"><span class="empty-icon">💬</span><strong>您好！我是智慧烟感智能助手</strong><p>您可以问我关于火灾预防、设备使用、灾情研判等方面的问题</p><div class="quick-qs"><span data-q="发生火灾如何逃生？">发生火灾如何逃生？</span><span data-q="附近有哪些消防设备可用？">附近有哪些消防设备可用？</span><span data-q="如何进行火灾隐患排查？">如何进行火灾隐患排查？</span><span data-q="当前区域风险等级是多少？">当前区域风险等级是多少？</span></div></div>';
+  bindQuickQs();
+  lastAiAnswer = "";
+  aiRound = 0;
+  var latEl = el("modelLatency"); if (latEl) latEl.textContent = "— ms";
+  var rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = "0";
+  var tokEl = el("modelTokens"); if (tokEl) tokEl.textContent = "—";
+  renderAiJudgement();
+  updateBroadcastButtonState();
+  loadConversationHistory();
+}
+
+async function resumeConversation(sessionId) {
+  state.aiSessionId = sessionId;
+  var log = el("chatLog");
+  if (!log) return;
+  log.innerHTML = '<div class="empty-state"><strong>加载历史对话...</strong></div>';
+  try {
+    var data = await apiRequest("/conversations?sessionId=" + encodeURIComponent(sessionId) + "&page=1&pageSize=200");
+    var records = (data && data.records) || [];
+    records.sort(function(a, b) { return (a.createTime || "").localeCompare(b.createTime || ""); });
+    log.innerHTML = '<div class="chat-empty-state" id="chatEmpty" style="display:none;"></div>';
+    records.forEach(function(item) {
+      if (item.question) appendChat("user", item.question);
+      if (item.answer) appendChat("ai", item.answer);
+    });
+    aiRound = records.filter(function(r) { return r.question; }).length;
+    var rndEl = el("modelRounds"); if (rndEl) rndEl.textContent = String(aiRound);
+    lastAiAnswer = records.length > 0 ? (records[records.length - 1].answer || "") : "";
+  } catch (error) {
+    log.innerHTML = '<div class="empty-state"><strong>加载失败</strong><p>' + error.message + '</p></div>';
+  }
+  loadConversationHistory();
+  updateBroadcastButtonState();
 }
 
 function bindQuickQs() {
@@ -1151,6 +1110,64 @@ function bindQuickQs() {
       sendQuestion();
     });
   });
+}
+
+// ===== 广播管理 =====
+async function loadBroadcastOptions() {
+  try {
+    var data = await apiRequest("/simulation/devices");
+    var devices = Array.isArray(data) ? data : [];
+    var buildings = [...new Set(devices.map(function(d) { return d.building; }).filter(Boolean))].sort();
+    var bSel = el("broadcastBuildingSel");
+    if (bSel) { bSel.innerHTML = '<option value="">-- 选择楼栋 --</option>' + buildings.map(function(b) { return '<option value="' + b + '">' + b + '</option>'; }).join(''); }
+    if (bSel) bSel.addEventListener("change", function() {
+      var floors = [...new Set(devices.filter(function(d) { return d.building === bSel.value; }).map(function(d) { return d.floor; }).filter(Boolean))].sort();
+      var fSel = el("broadcastFloorSel");
+      if (fSel) { fSel.innerHTML = '<option value="">-- 全部楼层 --</option>' + floors.map(function(f) { return '<option value="' + f + '">' + f + '</option>'; }).join(''); }
+    });
+  } catch(e) { console.error(e); }
+}
+async function loadBroadcastHistory(page) {
+  if (!page) page = 1;
+  try {
+    var data = await apiRequest("/broadcasts?page=" + page + "&pageSize=10");
+    var pageData = normalizePageResult(data, page, 10);
+    var body = el("broadcastTableBody");
+    if (!body) return;
+    if (!pageData.records.length) { body.innerHTML = '<tr><td colspan="4"><div class="empty-state"><strong>暂无广播记录</strong></div></td></tr>'; return; }
+    body.innerHTML = pageData.records.map(function(r) { return '<tr><td>' + safeText(r.createTime, "--") + '</td><td>' + safeText(r.broadcastArea, "--") + '</td><td>' + safeText(r.broadcastType, "--") + '</td><td>' + safeText(r.sendStatus, "--") + '</td></tr>'; }).join('');
+    var pg = el("broadcastPagination");
+    if (pg) pg.innerHTML = '<span class="page-info">第 ' + pageData.page + ' / ' + pageData.pages + ' 页，共 ' + pageData.total + ' 条</span>';
+  } catch(e) { console.error(e); }
+}
+async function sendBroadcastAction() {
+  var building = (el("broadcastBuildingSel")?.value || "").trim();
+  var floor = (el("broadcastFloorSel")?.value || "").trim();
+  var content = (el("broadcastContent")?.value || "").trim();
+  console.log("sendBroadcastAction:", {building, floor, content});
+  if (!building) { showGlobalAlert("请选择楼栋"); return; }
+  if (!content) { showGlobalAlert("请输入广播内容"); return; }
+  var label = building + (floor ? floor : "全部楼层");
+  if (!confirm("确认向 " + label + " 下发广播？")) return;
+  try {
+    var payload = { building: building, floor: floor || null, broadcastContent: content, broadcastType: "EMERGENCY", triggerMode: "MANUAL" };
+    console.log("POST /broadcasts/area:", payload);
+    var resp = await apiRequest("/broadcasts/area", { method: "POST", body: JSON.stringify(payload) });
+    console.log("broadcast response:", resp);
+    showGlobalAlert("已向 " + label + " 下发广播");
+    loadBroadcastHistory(1);
+  } catch(error) { console.error("broadcast error:", error); showGlobalAlert("广播失败: " + error.message); }
+}
+async function jumpToBroadcast(building, floor) {
+  switchView("broadcasts");
+  await loadBroadcastOptions(); // 等数据加载完
+  var bSel = el("broadcastBuildingSel");
+  if (bSel && building) { bSel.value = building; bSel.dispatchEvent(new Event("change")); }
+  await new Promise(function(r) { setTimeout(r, 200); }); // 等楼层联动
+  var fSel = el("broadcastFloorSel");
+  if (fSel && floor && floor.trim()) { fSel.value = floor; }
+  var cEl = el("broadcastContent");
+  if (cEl && building) { cEl.value = "【火警告警通知】" + building + (floor ? floor : "") + "检测到火情，请立即疏散！"; }
 }
 
 // ===== 调试日志 =====
@@ -1201,40 +1218,85 @@ function showGlobalAlert(text) {
   showGlobalAlert.timer = setTimeout(() => node.classList.add("hidden"), 4000);
 }
 
+// 告警音效（懒初始化，首次用户点击后激活）
+var _alarmAudioCtx = null;
+function _ensureAudioCtx() { if (!_alarmAudioCtx) { _alarmAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } if (_alarmAudioCtx.state === 'suspended') { _alarmAudioCtx.resume(); } return _alarmAudioCtx; }
+document.addEventListener('click', function() { _ensureAudioCtx(); }, { once: false });
+function playAlarmSound() {
+  try { var ctx = _ensureAudioCtx(); var t = ctx.currentTime;
+    // 第一段：高频急促
+    var o1 = ctx.createOscillator(); var g1 = ctx.createGain(); o1.connect(g1); g1.connect(ctx.destination);
+    o1.type = 'sawtooth'; o1.frequency.setValueAtTime(1000, t); o1.frequency.setValueAtTime(800, t+0.15); o1.frequency.setValueAtTime(1000, t+0.3);
+    g1.gain.setValueAtTime(0.25, t); g1.gain.exponentialRampToValueAtTime(0.01, t+0.35);
+    o1.start(t); o1.stop(t+0.35);
+    // 第二段：低沉持续
+    var o2 = ctx.createOscillator(); var g2 = ctx.createGain(); o2.connect(g2); g2.connect(ctx.destination);
+    o2.type = 'square'; o2.frequency.setValueAtTime(500, t+0.35); o2.frequency.setValueAtTime(400, t+0.65);
+    g2.gain.setValueAtTime(0.01, t+0.35); g2.gain.linearRampToValueAtTime(0.2, t+0.4); g2.gain.exponentialRampToValueAtTime(0.01, t+0.9);
+    o2.start(t+0.35); o2.stop(t+0.9);
+  } catch(e) {}
+}
+
+var _lastAlarmKeys = {};
 function showRealtimeAlarmBanner(payload) {
-  const node = el("globalAlert");
-  if (!node) return;
+  var key = (payload.deviceId || '') + '|' + (payload.alarmType || '') + '|' + (payload.alarmStatus || '');
+  var now = Date.now();
+  if (_lastAlarmKeys[key] && (now - _lastAlarmKeys[key]) < 3000) return; // 3秒内去重
+  _lastAlarmKeys[key] = now;
+  const stack = el("alarmBannerStack");
+  if (!stack) return;
   const levelClass = alarmLevelClass(payload.alarmLevel);
   const title = formatAlarmLevel(payload.alarmLevel) + "级" + formatAlarmType(payload.alarmType || payload.alarmTypeText);
   const deviceName = safeText(payload.deviceName || payload.deviceId, "未知设备");
   const location = [payload.building, payload.floor, payload.room].filter(Boolean).join("");
   const metric = formatAlarmMetric(payload);
   const summary = safeText(payload.message, metric);
-  node.innerHTML = '<div class="alert-banner ' + levelClass + '">' +
-    '<div class="alert-banner-title">' + escapeHtml(title) + ' | ' + escapeHtml(deviceName) + '</div>' +
-    '<div class="alert-banner-meta">' + (location ? ('位置: ' + escapeHtml(location) + ' · ') : '') + '状态: ' + escapeHtml(formatAlarmStatus(payload.alarmStatus)) + ' · ' + escapeHtml(metric) + '</div>' +
-    '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
-  node.classList.remove("hidden");
-  clearTimeout(showRealtimeAlarmBanner.timer);
-  showRealtimeAlarmBanner.timer = setTimeout(() => node.classList.add("hidden"), 10000);
+  var id = "banner-" + Date.now() + "-" + Math.random().toString(36).slice(2,6);
+  var card = document.createElement("div");
+  card.id = id;
+  card.className = "alarm-card";
+  card.style.cssText = "background:#fff;border-radius:10px;box-shadow:0 4px 24px rgba(0,0,0,0.12);padding:12px 16px;border-left:4px solid " + (levelClass === "danger" ? "#ef4444" : levelClass === "warn" ? "#f59e0b" : "#3b82f6") + ";cursor:pointer;animation:fadeIn 0.3s ease;";
+  card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><strong style="font-size:13px;color:#1e293b;">' + escapeHtml(title) + '</strong><span style="margin-left:8px;font-size:11px;color:#64748b;">' + escapeHtml(deviceName) + '</span></div><span style="cursor:pointer;color:#94a3b8;font-size:16px;line-height:1;" onclick="this.parentElement.parentElement.remove()">×</span></div>' +
+    '<div style="font-size:11px;color:#94a3b8;margin-top:3px;">' + (location ? escapeHtml(location) + ' · ' : '') + escapeHtml(formatAlarmStatus(payload.alarmStatus)) + ' · ' + escapeHtml(metric) + '</div>';
+  stack.appendChild(card);
+  // 10秒后自动消失
+  setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 10000);
+  // 最多保留 5 条
+  while (stack.children.length > 5) { stack.removeChild(stack.firstChild); }
 }
 
+function showDeviceOnlineBanner(payload) {
+  var stack = el("alarmBannerStack");
+  var dName = safeText(payload.deviceName || payload.deviceId, "未知设备");
+  var addr = [payload.building, payload.floor, payload.room].filter(Boolean).join("");
+  if (!stack) return;
+  var id = "on-" + Date.now() + "-" + Math.random().toString(36).slice(2,6);
+  var card = document.createElement("div");
+  card.id = id;
+  card.style.cssText = "background:#f0fdf4;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:10px 14px;border-left:4px solid #22c55e;font-size:12px;";
+  card.innerHTML = '<strong style="color:#166534;">📡 设备恢复在线</strong> ' + escapeHtml(dName) + (addr ? ' · ' + escapeHtml(addr) : '') + ' <span style="float:right;cursor:pointer;color:#94a3b8;" onclick="this.parentElement.remove()">×</span>';
+  stack.appendChild(card);
+  setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 10000);
+}
+
+var _lastBcKey = "", _lastBcTime = 0;
 function showBroadcastBanner(payload) {
-  const node = el("globalAlert");
-  if (!node) return;
-  const area = safeText(payload.area || payload.broadcastArea, "当前区域");
-  const mode = payload.triggerMode === "AUTO" ? "自动" : (payload.triggerMode === "MANUAL" ? "手动" : "联动");
-  const typeLabel = payload.broadcastType === "EMERGENCY" ? "紧急广播" : (payload.broadcastType === "NOTIFICATION" ? "通知" : "广播");
-  const deviceName = safeText(payload.deviceName, "");
-  const summary = safeText(payload.message || payload.broadcastContent, "");
-  const timeStr = payload.time ? payload.time.substring(11, 19) : "";
-  node.innerHTML = '<div class="alert-banner danger">' +
-    '<div class="alert-banner-title">[广播] ' + escapeHtml(typeLabel) + ' | ' + escapeHtml(area) + (deviceName ? ' | ' + escapeHtml(deviceName) : '') + '</div>' +
-    '<div class="alert-banner-meta">触发方式: ' + escapeHtml(mode) + ' · 时间: ' + escapeHtml(timeStr) + '</div>' +
-    '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
-  node.classList.remove("hidden");
-  clearTimeout(showBroadcastBanner.timer);
-  showBroadcastBanner.timer = setTimeout(() => node.classList.add("hidden"), 15000);
+  var key = (payload.area || '') + '|' + (payload.message || '').substring(0, 30);
+  var now = Date.now();
+  if (_lastBcKey === key && (now - (_lastBcTime||0)) < 3000) return;
+  _lastBcKey = key; _lastBcTime = now;
+  var stack = el("alarmBannerStack");
+  if (!stack) return;
+  var area = safeText(payload.area || payload.broadcastArea, "当前区域");
+  var msg = safeText(payload.message || payload.broadcastContent, "");
+  var id = "bc-" + Date.now() + "-" + Math.random().toString(36).slice(2,6);
+  var card = document.createElement("div");
+  card.className = "broadcast-card";
+  card.id = id;
+  card.style.cssText = "background:#fef2f2;border-radius:10px;padding:14px 16px;border-left:5px solid #dc2626;cursor:pointer;";
+  card.innerHTML = '<div style="display:flex;justify-content:space-between;"><div style="flex:1;"><div style="font-size:15px;font-weight:700;color:#dc2626;">🚨 紧急广播 · ' + escapeHtml(area) + '</div><div style="font-size:13px;color:#1e293b;margin-top:6px;line-height:1.5;">' + escapeHtml(msg) + '</div></div><span style="cursor:pointer;color:#94a3b8;font-size:18px;padding-left:8px;" onclick="document.getElementById(\'' + id + '\').remove()">×</span></div>';
+  stack.appendChild(card);
+  setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 120000);
 }
 
 async function loadHealthStatus() {
@@ -1463,6 +1525,20 @@ async function showReviewDetail(id) {
       { label: "创建时间", value: safeText(item.createTime, "--") }
     );
     openDetailModal("AI复核详情 #" + id, reviewRows);
+    // AI确认火情 → 显示广播按钮
+    if (item.reviewResult === "FIRE_CONFIRMED" && item.deviceId) {
+      var modalBody = el("detailModalBody");
+      if (modalBody) {
+        var btnRow = document.createElement("div");
+        btnRow.style.cssText = "margin-top:16px;text-align:center;";
+        btnRow.innerHTML = '<button class="btn btn-main danger-wide" id="btnBroadcastFromReview" style="font-size:14px;padding:10px 24px;">📢 下发广播到此区域</button>';
+        modalBody.appendChild(btnRow);
+        document.getElementById("btnBroadcastFromReview").addEventListener("click", async function() {
+          try { var dev = await apiRequest("/devices/" + item.deviceId); closeDetailModal(); await jumpToBroadcast(dev.locationBuilding, dev.locationFloor); }
+          catch(e) { showGlobalAlert("获取设备信息失败"); }
+        });
+      }
+    }
   } catch (error) {
     showGlobalAlert("AI复核详情加载失败: " + error.message);
   }
@@ -1494,10 +1570,14 @@ function connectWebSocket() {
       try {
         const payload = JSON.parse(event.data);
         if (payload.kind === "broadcast") { showBroadcastBanner(payload); }
+        else if (payload.kind === "device_online") { showDeviceOnlineBanner(payload); }
         else { showRealtimeAlarmBanner(payload); }
+        loadScreenData();
         loadAnalysisData();
         loadAlarmRows(1);
         loadReviewRows(1);
+        loadDeviceStats();
+        loadDevices(state.devicesPage.page || 1);
       } catch (error) {
         showGlobalAlert("实时告警: " + event.data);
       }
@@ -1559,6 +1639,8 @@ function bindEvents() {
   if (btnLoadAlarms) btnLoadAlarms.addEventListener("click", () => loadAlarmRows(1));
   if (btnSendQuestion) btnSendQuestion.addEventListener("click", sendQuestion);
   if (btnBroadcast) btnBroadcast.addEventListener("click", sendBroadcast);
+  var btnSendBc = el("btnSendBroadcast"); if (btnSendBc) btnSendBc.addEventListener("click", sendBroadcastAction);
+  var btnRefreshBc = el("btnRefreshBroadcasts"); if (btnRefreshBc) btnRefreshBc.addEventListener("click", function() { loadBroadcastHistory(1); });
   if (btnLogout) btnLogout.addEventListener("click", logout);
   if (btnSelectAllDevices) btnSelectAllDevices.addEventListener("click", () => { state.selectedDeviceIds = getVisibleDeviceRecords().map((item) => String(item.id)); renderDevicesTable(); });
   if (btnClearDevices) btnClearDevices.addEventListener("click", () => { state.selectedDeviceIds = []; renderDevicesTable(); });
@@ -1599,11 +1681,11 @@ function bindEvents() {
   }));
   // 新 AI 视图按钮
   const btnClearChat = el("btnClearChat"); if (btnClearChat) btnClearChat.addEventListener("click", clearChat);
+  const btnNewConversation = el("btnNewConversation"); if (btnNewConversation) btnNewConversation.addEventListener("click", startNewConversation);
+  const btnRefreshHistory = el("btnRefreshHistory"); if (btnRefreshHistory) btnRefreshHistory.addEventListener("click", loadConversationHistory);
   const btnOpenLogDrawer = el("btnOpenLogDrawer"); if (btnOpenLogDrawer) btnOpenLogDrawer.addEventListener("click", openLogDrawer);
   const btnCloseDrawer = el("btnCloseDrawer"); if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeLogDrawer);
   const logDrawerMask = el("logDrawerMask"); if (logDrawerMask) logDrawerMask.addEventListener("click", closeLogDrawer);
-  // 绑定弹窗
-  const bindForm = el("bindForm"); if (bindForm) bindForm.addEventListener("submit", submitBindForm);
   // ------ AI复核页面事件 ------
   var btnRefreshReviews = el("btnRefreshReviews");
   var btnSearchReviews = el("btnSearchReviews");
@@ -1629,9 +1711,6 @@ function bindEvents() {
     if (formModal && !formModal.classList.contains("hidden") && event.target === formModal.querySelector(".modal-mask")) closeDeviceFormModal();
     if (event.target && event.target.matches && event.target.matches("[data-device-form-close='true']")) closeDeviceFormModal();
     if (event.target && event.target.matches && event.target.matches("[data-modal-close='true']")) closeDetailModal();
-    if (event.target && event.target.matches && event.target.matches("[data-bind-close='true']")) closeBindModal();
-    const bindModal = el("bindModal");
-    if (bindModal && !bindModal.classList.contains("hidden") && event.target === bindModal.querySelector(".modal-mask")) closeBindModal();
   });
 }
 
@@ -1658,7 +1737,7 @@ async function bootstrap() {
   await loadHealthStatus();
   await Promise.all([loadDeviceStats(), loadDevices(1), loadScreenData(), loadAnalysisData(), loadAlarmRows(1)]);
   renderAiJudgement();
-  setInterval(async () => { await loadHealthStatus(); await loadScreenData(); }, 20000);
+  setInterval(async () => { await loadHealthStatus(); await loadScreenData(); }, 10000);
 }
 
 bootstrap();

@@ -6,12 +6,16 @@ import com.smartsmoke.common.Result;
 import com.smartsmoke.dto.LoginRequest;
 import com.smartsmoke.dto.RegisterRequest;
 import com.smartsmoke.entity.LoginVO;
+import com.smartsmoke.entity.SmokeDevice;
 import com.smartsmoke.entity.SysUser;
+import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -19,6 +23,27 @@ import java.time.LocalDateTime;
 public class AuthController {
 
     private final UserService userService;
+    private final DeviceMapper deviceMapper;
+
+    // 获取可注册的地址列表（从已有设备中提取）
+    @GetMapping("/addresses")
+    public Result<List<Map<String, String>>> addresses() {
+        List<SmokeDevice> devices = deviceMapper.selectList(null);
+        Set<String> seen = new HashSet<>();
+        List<Map<String, String>> list = new ArrayList<>();
+        for (SmokeDevice d : devices) {
+            String key = d.getLocationBuilding() + "|" + d.getLocationFloor() + "|" + d.getLocationRoom();
+            if (seen.add(key)) {
+                Map<String, String> m = new HashMap<>();
+                m.put("building", d.getLocationBuilding());
+                m.put("floor", d.getLocationFloor());
+                m.put("room", d.getLocationRoom());
+                m.put("label", d.getLocationBuilding() + " " + d.getLocationFloor() + " " + d.getLocationRoom());
+                list.add(m);
+            }
+        }
+        return Result.success(list);
+    }
 
     // 4.1 登录
     @PostMapping("/login")
@@ -64,6 +89,9 @@ public class AuthController {
         user.setRealName(req.getRealName());
         user.setPhone(req.getPhone());
         user.setRole(req.getRole() != null ? req.getRole() : "RESIDENT");
+        user.setResidentBuilding(req.getResidentBuilding());
+        user.setResidentFloor(req.getResidentFloor());
+        user.setResidentRoom(req.getResidentRoom());
         user.setStatus("ENABLED");
         user.setLoginCount(1);
         user.setLastLoginTime(LocalDateTime.now());

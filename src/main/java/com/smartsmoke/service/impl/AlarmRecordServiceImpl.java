@@ -83,7 +83,7 @@ public class AlarmRecordServiceImpl extends ServiceImpl<AlarmRecordMapper, Alarm
         }
 
         log.warn("offline alarm upserted {} alarmCode={}", deviceCode, record.getAlarmCode());
-        AlarmWebSocket.broadcast(buildWebSocketPayload(record, device));
+        AlarmWebSocket.broadcastByDevice(record.getDeviceId(), buildWebSocketPayload(record, device));
     }
 
     private String buildAlarmCode(String deviceCode) {

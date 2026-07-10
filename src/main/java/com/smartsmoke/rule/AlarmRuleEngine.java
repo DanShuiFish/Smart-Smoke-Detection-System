@@ -61,11 +61,16 @@ public class AlarmRuleEngine {
         boolean isSmokeDanger = data.getSmokeConcentration() != null && data.getSmokeConcentration().doubleValue() > 0.1;
         boolean isTempDanger = data.getTemperature() != null && data.getTemperature().doubleValue() > 60.0;
 
-        if (isSmokeDanger) {
-            triggerAlarm(data, "SMOKE_CONCENTRATION");
-        }
-        if (isTempDanger) {
-            triggerAlarm(data, "TEMPERATURE");
+        // 烟雾+温度同时超标 → 合并为一条复合火情告警
+        if (isSmokeDanger && isTempDanger) {
+            triggerAlarm(data, "FIRE_RISK");
+        } else {
+            if (isSmokeDanger) {
+                triggerAlarm(data, "SMOKE_CONCENTRATION");
+            }
+            if (isTempDanger) {
+                triggerAlarm(data, "TEMPERATURE");
+            }
         }
     }
 
@@ -75,8 +80,11 @@ public class AlarmRuleEngine {
             return;
         }
 
+        // FIRE_RISK 是烟雾+温度复合告警，阈值匹配用 SMOKE_CONCENTRATION
+        String lookupType = "FIRE_RISK".equals(thresholdType) ? "SMOKE_CONCENTRATION" : thresholdType;
+
         LambdaQueryWrapper<AlertThreshold> query = new LambdaQueryWrapper<>();
-        query.eq(AlertThreshold::getThresholdType, thresholdType)
+        query.eq(AlertThreshold::getThresholdType, lookupType)
                 .eq(AlertThreshold::getStatus, "ENABLED")
                 .and(w -> {
                     w.eq(AlertThreshold::getDeviceId, data.getDeviceId()).or().isNull(AlertThreshold::getDeviceId);
@@ -84,7 +92,7 @@ public class AlarmRuleEngine {
                 .and(w -> {
                     w.isNull(AlertThreshold::getThresholdMin).or().le(AlertThreshold::getThresholdMin, metricValue);
                 })
-                .ge(AlertThreshold::getThresholdMax, metricValue)
+                .le(AlertThreshold::getThresholdMax, metricValue)  // thresholdMax <= metricValue 即超标
                 .orderByDesc(AlertThreshold::getDeviceId)
                 .orderByAsc(AlertThreshold::getSortOrder)
                 .last("LIMIT 1");
@@ -107,15 +115,15 @@ public class AlarmRuleEngine {
         alarmRecordService.save(record);
 
         try {
-            AlarmWebSocket.broadcast(objectMapper.writeValueAsString(record));
+            String msg = objectMapper.writeValueAsString(record);
+            AlarmWebSocket.broadcastByDevice(record.getDeviceId(), msg);
         } catch (Exception e) {
             log.error("WebSocket 广播序列化失败: {}", e.getMessage());
-            AlarmWebSocket.broadcast(JSONUtil.toJsonStr(record));  // 降级 Hutool
+            AlarmWebSocket.broadcastByDevice(record.getDeviceId(), JSONUtil.toJsonStr(record));
         }
 
-        if ("HIGH".equals(alarmLevel) || "CRITICAL".equals(alarmLevel)) {
-            runAiReviewAndBroadcast(record, data);
-        }
+        // 所有告警均触发 AI 视觉复核
+        runAiReviewAndBroadcast(record, data);
     }
 
     private void runAiReviewAndBroadcast(AlarmRecord record, SensorData data) {
@@ -148,8 +156,8 @@ public class AlarmRuleEngine {
         aiReviewRecordMapper.insert(review);
 
         record.setIsVisionReviewed(1);
-        record.setConfirmMethod("AUTO_VISION");
-        record.setAlarmStatus(hasFire ? "CONFIRMED" : "CONFIRMING");
+        // AI复核不改变告警状态，仅提供参考证据。管理员手动确认后才改状态。
+        // 自动广播仍然在 AI 确认火情时触发
         alarmRecordService.updateById(record);
 
         if (hasFire) {
@@ -169,13 +177,16 @@ public class AlarmRuleEngine {
         if ("TEMPERATURE".equals(thresholdType)) {
             return "TEMP_OVERFLOW";
         }
+        if ("FIRE_RISK".equals(thresholdType)) {
+            return "FIRE_RISK";
+        }
         return "SMOKE_OVERFLOW";
     }
 
     private String buildAlarmCode(String thresholdType) {
         String datePart = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String timePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmssSSS"));
-        String suffix = "SMOKE_CONCENTRATION".equals(thresholdType) ? "SM" : "TE";
+        String suffix = "FIRE_RISK".equals(thresholdType) ? "FR" : ("TEMPERATURE".equals(thresholdType) ? "TE" : "SM");
         return "ALG-" + datePart + "-" + timePart + "-" + suffix;
     }
 

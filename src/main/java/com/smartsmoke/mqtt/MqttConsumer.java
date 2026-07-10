@@ -4,10 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartsmoke.dto.DeviceReportDTO;
 import com.smartsmoke.dto.HeartbeatDTO;
+import com.smartsmoke.entity.AlarmRecord;
 import com.smartsmoke.entity.SensorData;
 import com.smartsmoke.entity.SmokeDevice;
 import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.rule.AlarmRuleEngine;
+import com.smartsmoke.service.AlarmRecordService;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttClient;
@@ -20,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 
 /**
  * MQTT 消费者 — BE1 领地
@@ -38,12 +41,16 @@ public class MqttConsumer {
     @Value("${mqtt.topics.subscribe}")
     private String subscribeTopics;
 
+    private final AlarmRecordService alarmRecordService;
+
     public MqttConsumer(MqttClient mqttClient, AlarmRuleEngine alarmRuleEngine,
-                        DeviceMapper deviceMapper, StringRedisTemplate stringRedisTemplate) {
+                        DeviceMapper deviceMapper, StringRedisTemplate stringRedisTemplate,
+                        AlarmRecordService alarmRecordService) {
         this.mqttClient = mqttClient;
         this.alarmRuleEngine = alarmRuleEngine;
         this.deviceMapper = deviceMapper;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.alarmRecordService = alarmRecordService;
     }
 
     @PostConstruct
@@ -70,7 +77,7 @@ public class MqttConsumer {
         log.debug("MQTT [{}]: {}", topic, payload);
 
         try {
-            if (topic.contains("/heartbeat")) {
+            if (topic.endsWith("/heartbeat")) {
                 HeartbeatDTO heartbeat = objectMapper.readValue(payload, HeartbeatDTO.class);
                 handleHeartbeat(heartbeat);
             } else {
@@ -123,6 +130,9 @@ public class MqttConsumer {
         stringRedisTemplate.opsForValue()
                 .set("device:heartbeat:" + heartbeat.getDeviceId(), "1", Duration.ofSeconds(ttl));
 
+        // 设备恢复上线：自动关闭该设备已有的 DEVICE_OFFLINE 类型活跃告警
+        closeOfflineAlarms(device.getId());
+
         log.debug("心跳更新: {} battery={}% rssi={}dBm", heartbeat.getDeviceId(), heartbeat.getBat(), heartbeat.getRssi());
     }
 
@@ -159,6 +169,11 @@ public class MqttConsumer {
         }
         deviceMapper.updateById(updateDevice);
 
+        // 数据上报设备也写 Redis 心跳 Key，确保离线检测覆盖纯数据上报设备
+        int dataTtl = device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 30;
+        stringRedisTemplate.opsForValue()
+                .set("device:heartbeat:" + report.getDeviceId(), "1", Duration.ofSeconds(dataTtl));
+
         // DTO 转换为 Entity
         SensorData sensorData = new SensorData();
         sensorData.setDeviceId(device.getId());
@@ -177,5 +192,26 @@ public class MqttConsumer {
 
         // 交给 PM 的规则引擎处理
         alarmRuleEngine.processData(sensorData);
+    }
+
+    /**
+     * 设备恢复上线：关闭该设备所有 DEVICE_OFFLINE 类型且未终态的告警
+     */
+    private void closeOfflineAlarms(Long deviceId) {
+        try {
+            List<AlarmRecord> activeOffline = alarmRecordService.lambdaQuery()
+                    .eq(AlarmRecord::getDeviceId, deviceId)
+                    .eq(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")
+                    .in(AlarmRecord::getAlarmStatus, java.util.List.of("PENDING", "CONFIRMING", "CONFIRMED"))
+                    .list();
+            for (AlarmRecord a : activeOffline) {
+                a.setAlarmStatus("CLOSED");
+                a.setRemark("设备恢复在线，自动关闭离线告警");
+                alarmRecordService.updateById(a);
+                log.info("设备 {} 恢复在线，自动关闭离线告警 alarmId={}", deviceId, a.getId());
+            }
+        } catch (Exception e) {
+            log.warn("关闭离线告警失败 deviceId={}: {}", deviceId, e.getMessage());
+        }
     }
 }

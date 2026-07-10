@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>设备模拟器 — 智慧烟感预警系统</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh}
+.header{background:#1e293b;color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center}
+.header h1{font-size:18px;font-weight:700}
+.header .badge{font-size:11px;background:#ef4444;color:#fff;padding:4px 10px;border-radius:20px}
+.container{max-width:1100px;margin:20px auto;padding:0 20px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);padding:20px}
+.card h2{font-size:15px;font-weight:700;margin-bottom:14px;color:#334155;border-bottom:2px solid #e2e8f0;padding-bottom:8px}
+.form-row{display:flex;gap:12px;margin-bottom:10px;align-items:flex-end;flex-wrap:wrap}
+.form-group{flex:1;min-width:120px}
+.form-group label{display:block;font-size:12px;color:#64748b;margin-bottom:4px;font-weight:600}
+.form-group input,.form-group select{width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px}
+.btn{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
+.btn-primary{background:#2563eb;color:#fff}
+.btn-primary:hover{background:#1d4ed8}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-danger:hover{background:#dc2626}
+.btn-outline{background:#fff;color:#2563eb;border:1px solid #2563eb}
+.btn-outline:hover{background:#eff6ff}
+.btn-sm{padding:5px 10px;font-size:11px}
+.preset-row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.preset{padding:6px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid #d1d5db;background:#fff;transition:all .15s}
+.preset:hover{background:#eff6ff;border-color:#2563eb}
+.preset.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.device-list{max-height:400px;overflow-y:auto}
+.device-item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;border-radius:8px;transition:background .1s}
+.device-item:hover{background:#f8fafc}
+.device-item.selected{background:#eff6ff;border:1px solid #bfdbfe}
+.device-item .info{flex:1}
+.device-item .name{font-weight:600;font-size:13px}
+.device-item .meta{font-size:11px;color:#94a3b8;margin-top:2px}
+.status{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.status.online{background:#22c55e}
+.status.offline{background:#ef4444}
+.result-area{margin-top:12px;max-height:250px;overflow-y:auto;font-size:12px}
+.result-item{padding:8px 12px;border-radius:8px;margin-bottom:6px;font-family:monospace;font-size:11px}
+.result-ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+.result-warn{background:#fefce8;border:1px solid #fef08a;color:#854d0e}
+.batch-count{font-size:11px;color:#64748b;margin-left:6px}
+input[type=range]{width:100%}
+.range-val{font-size:11px;color:#2563eb;font-weight:700;text-align:center}
+.full-width{grid-column:1/-1}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>智慧烟感 — 设备模拟器</h1>
+  <span class="badge">独立工具 · 接硬件后删除</span>
+</div>
+
+<div class="container">
+  <div class="grid">
+    <!-- 左侧：设备列表 -->
+    <div class="card">
+      <h2>设备列表 <button class="btn btn-outline btn-sm" onclick="loadDevices()" style="float:right">刷新</button></h2>
+      <div class="device-list" id="deviceList"><div style="text-align:center;color:#94a3b8;padding:30px;">加载中...</div></div>
+      <div style="margin-top:10px;font-size:11px;color:#64748b;">
+        已选 <span id="selectedCount">0</span> 台 |
+        <a href="#" onclick="selectAll()" style="color:#2563eb;">全选</a> ·
+        <a href="#" onclick="clearSelection()" style="color:#ef4444;">清除</a>
+      </div>
+    </div>
+
+    <!-- 右侧：模拟控制 -->
+    <div class="card">
+      <h2>模拟参数</h2>
+      <div class="preset-row" id="presets">
+        <button class="preset" data-s="0.05" data-t="25" data-l="正常">🟢 正常</button>
+        <button class="preset" data-s="0.18" data-t="62" data-l="轻度">🟡 轻度告警</button>
+        <button class="preset active" data-s="0.35" data-t="68" data-l="火警">🔴 火警告警</button>
+        <button class="preset" data-s="0.60" data-t="85" data-l="严重">🚨 严重火情</button>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>烟雾浓度 (mg/m³)</label><input type="range" id="smokeRange" min="0" max="100" value="35" oninput="syncRange()"><input type="number" id="smokeVal" value="0.35" step="0.01" min="0" onchange="syncNum()" style="margin-top:4px"><div class="range-val" id="smokeLabel">0.35 — 火警告警</div></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>温度 (°C)</label><input type="range" id="tempRange" min="0" max="100" value="68" oninput="syncRange()"><input type="number" id="tempVal" value="68" step="1" onchange="syncNum()" style="margin-top:4px"></div>
+        <div class="form-group"><label>湿度 (%)</label><input type="number" id="humiVal" value="50" step="1"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="sendSimulation()">发送模拟数据</button>
+        <button class="btn btn-danger" onclick="sendBatch()">批量发送 <span class="batch-count" id="batchLabel">(0台)</span></button>
+        <button class="btn btn-outline" onclick="simulateOffline()" style="border-color:#f59e0b;color:#f59e0b;">模拟离线</button>
+        <button class="btn btn-outline" onclick="simulateOnline()" style="border-color:#22c55e;color:#22c55e;">恢复上线</button>
+      </div>
+      <div class="result-area" id="results"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/v1';
+const TOKEN_KEY = 'smoke_token';
+let devices = [];
+let selected = new Set();
+let lastPreset = '火警';
+
+// ===== 初始化 =====
+async function init() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) { document.body.innerHTML = '<div style="text-align:center;padding:60px;"><h2>请先登录</h2><p style="color:#64748b;">在 <a href="/">登录页</a> 以管理员身份登录后刷新此页面</p></div>'; return; }
+  await loadDevices();
+}
+
+async function api(path, opts = {}) {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const headers = {'Content-Type':'application/json'};
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(API + path, {...opts, headers});
+  if (res.status === 401) { alert('登录已过期，请重新登录'); return null; }
+  const body = await res.json();
+  if (body && body.code && body.code !== 200) { alert(body.msg || body.message || '请求失败'); return null; }
+  return body && body.data !== undefined ? body.data : body;
+}
+
+// ===== 设备列表 =====
+async function loadDevices() {
+  const data = await api('/simulation/devices');
+  if (!data) return;
+  devices = Array.isArray(data) ? data : (data.records || []);
+  renderDevices();
+}
+
+function renderDevices() {
+  const el = document.getElementById('deviceList');
+  if (!devices.length) { el.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:30px;">暂无设备，请先在管理端创建设备</div>'; return; }
+  el.innerHTML = devices.map(d => {
+    const sel = selected.has(d.deviceCode);
+    return '<div class="device-item' + (sel ? ' selected' : '') + '" onclick="toggleDevice(\'' + d.deviceCode + '\')">' +
+      '<div class="info"><div class="name"><span class="status ' + (d.status === 'ONLINE' ? 'online' : 'offline') + '"></span>' + d.deviceCode + '</div>' +
+      '<div class="meta">' + d.name + (d.building ? ' · ' + d.building + d.floor : '') + ' · ' + d.status + '</div></div>' +
+      (sel ? '<span style="color:#2563eb;font-weight:700;font-size:11px;">已选</span>' : '') +
+      '</div>';
+  }).join('');
+  document.getElementById('selectedCount').textContent = selected.size;
+  document.getElementById('batchLabel').textContent = '(' + selected.size + '台)';
+}
+
+function toggleDevice(code) {
+  if (selected.has(code)) selected.delete(code); else selected.add(code);
+  renderDevices();
+}
+
+function selectAll() { devices.forEach(d => selected.add(d.deviceCode)); renderDevices(); }
+function clearSelection() { selected.clear(); renderDevices(); }
+
+// ===== 预设 =====
+document.getElementById('presets').addEventListener('click', e => {
+  if (!e.target.classList.contains('preset')) return;
+  document.querySelectorAll('.preset').forEach(p => p.classList.remove('active'));
+  e.target.classList.add('active');
+  const s = parseFloat(e.target.dataset.s), t = parseInt(e.target.dataset.t);
+  lastPreset = e.target.dataset.l;
+  document.getElementById('smokeRange').value = Math.round(s * 100);
+  document.getElementById('smokeVal').value = s;
+  document.getElementById('tempRange').value = t;
+  document.getElementById('tempVal').value = t;
+  updateLabels();
+});
+
+function syncRange() {
+  document.getElementById('smokeVal').value = (document.getElementById('smokeRange').value / 100).toFixed(2);
+  document.getElementById('tempVal').value = document.getElementById('tempRange').value;
+  updateLabels();
+}
+function syncNum() {
+  document.getElementById('smokeRange').value = Math.round(parseFloat(document.getElementById('smokeVal').value) * 100);
+  document.getElementById('tempRange').value = document.getElementById('tempVal').value;
+  updateLabels();
+}
+function updateLabels() {
+  const s = parseFloat(document.getElementById('smokeVal').value);
+  let label = s < 0.15 ? '正常范围' : s < 0.30 ? '轻度超标' : s < 0.50 ? '火警告警' : '严重火情';
+  document.getElementById('smokeLabel').textContent = s.toFixed(2) + ' — ' + label;
+}
+
+function getParams() {
+  return {
+    smoke: parseFloat(document.getElementById('smokeVal').value) || 0.05,
+    temp: parseFloat(document.getElementById('tempVal').value) || 25,
+    humi: parseFloat(document.getElementById('humiVal').value) || 50
+  };
+}
+
+// ===== 发送 =====
+async function sendSimulation() {
+  const sel = selected.size > 0 ? Array.from(selected) : devices.filter(d => d.status === 'ONLINE').map(d => d.deviceCode);
+  if (!sel.length) { alert('请先选择设备'); return; }
+  const p = getParams();
+  const code = sel[0];
+  const data = await api('/simulation/send', {method:'POST', body:JSON.stringify({deviceCode:code, smoke:p.smoke, temp:p.temp, humi:p.humi})});
+  addResult(code, p.smoke, p.temp, data ? 'success' : 'error');
+}
+
+async function sendBatch() {
+  if (!selected.size) { alert('请先选择设备'); return; }
+  const p = getParams();
+  const devs = Array.from(selected).map(code => ({deviceCode:code, smoke:p.smoke, temp:p.temp}));
+  const data = await api('/simulation/batch', {method:'POST', body:JSON.stringify({devices:devs, smoke:p.smoke, temp:p.temp, humi:p.humi})});
+  if (data && Array.isArray(data)) data.forEach(r => addResult(r.deviceCode, r.smoke, r.temp, r.ok ? 'success' : 'error'));
+}
+
+async function simulateOffline() {
+  const sel = selected.size > 0 ? Array.from(selected) : devices.filter(d => d.status === 'ONLINE').map(d => d.deviceCode);
+  if (!sel.length) { alert('请先选择设备'); return; }
+  const code = sel[0];
+  const data = await api('/simulation/offline', {method:'POST', body:JSON.stringify({deviceCode:code})});
+  if (data) { addResult(code, 0, 0, 'success', '离线'); loadDevices(); }
+}
+
+async function simulateOnline() {
+  const sel = selected.size > 0 ? Array.from(selected) : devices.map(d => d.deviceCode);
+  if (!sel.length) { alert('请先选择设备'); return; }
+  const code = sel[0];
+  const data = await api('/simulation/online', {method:'POST', body:JSON.stringify({deviceCode:code})});
+  if (data) { addResult(code, 0, 0, 'success', '上线'); loadDevices(); }
+}
+
+function addResult(code, smoke, temp, status, label) {
+  label = label || (smoke >= 0.30 ? '告警' : '正常');
+  const el = document.getElementById('results');
+  const now = new Date().toLocaleTimeString('zh-CN');
+  const cls = label === '离线' ? 'result-warn' : (label === '上线' ? 'result-ok' : (smoke >= 0.30 ? 'result-warn' : 'result-ok'));
+  const detail = label === '离线' ? '模拟离线' : (label === '上线' ? '恢复上线' : ('smoke=' + smoke + ' temp=' + temp + '°C'));
+  el.innerHTML = '<div class="result-item ' + cls + '">[' + now + '] ' + code + ' | ' + detail + ' | ' + (status === 'success' ? '已发送' : '失败') + '</div>' + el.innerHTML;
+  if (el.children.length > 50) el.removeChild(el.lastChild);
+}
+
+init();
+</script>
+</body>
+</html>

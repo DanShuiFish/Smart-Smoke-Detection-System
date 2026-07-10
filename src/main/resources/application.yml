@@ -48,7 +48,7 @@ mybatis-plus:
       logic-not-delete-value: 0
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 mqtt:
   broker:
@@ -56,10 +56,6 @@ mqtt:
     client-id: ${MQTT_CLIENT_ID:smart-smoke-backend}
     username: ${MQTT_USERNAME:fasong}
     password: ${MQTT_PASSWORD:fasong123}
-    completion-timeout: 3000
-    reconnect:
-      enabled: true
-      max-delay: 10000
   topics:
     subscribe: "smoke/+/data,smoke/+/heartbeat"
     publish-cmd: "smoke/%s/cmd"
@@ -76,4 +72,4 @@ maxkb:
 
 smart-java-ai:
   model-path: ${SMART_AI_MODEL_PATH:./smart-smoke-models}
-  threshold: 0.5
+  threshold: 0.3

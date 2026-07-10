@@ -8,11 +8,9 @@ import com.smartsmoke.common.PageResult;
 import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.AiReviewRecord;
 import com.smartsmoke.entity.AlarmRecord;
-import com.smartsmoke.entity.SysUser;
 import com.smartsmoke.mapper.AiReviewRecordMapper;
-import com.smartsmoke.mapper.UserMapper;
 import com.smartsmoke.service.AlarmRecordService;
-import com.smartsmoke.service.DeviceBindingService;
+import com.smartsmoke.service.PermissionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -29,23 +27,8 @@ import java.util.Set;
 public class AiReviewController {
 
     private final AiReviewRecordMapper aiReviewRecordMapper;
-    private final DeviceBindingService deviceBindingService;
-    private final UserMapper userMapper;
     private final AlarmRecordService alarmRecordService;
-
-    /**
-     * ADMIN → null（看全部）；RESIDENT → 已绑定的设备 ID 集合
-     */
-    private Set<Long> getVisibleDeviceIds() {
-        long userId = StpUtil.getLoginIdAsLong();
-        SysUser user = userMapper.selectById(userId);
-        String role = user != null ? user.getRole() : "RESIDENT";
-        if (role == null) return null;
-        String upper = role.toUpperCase();
-        if (upper.equals("ADMIN") || upper.equals("SYSTEM_ADMIN") || upper.equals("COMMUNITY_ADMIN")) return null;
-        List<Long> boundIds = deviceBindingService.getMyDeviceIds(userId);
-        return boundIds.isEmpty() ? Set.of(-1L) : Set.copyOf(boundIds);
-    }
+    private final PermissionService permissionService;
 
     // 12.1 AI 复核记录列表（分页 + 多条件筛选）
     @GetMapping
@@ -57,7 +40,7 @@ public class AiReviewController {
             @RequestParam(required = false) String result) {
         LambdaQueryWrapper<AiReviewRecord> qw = new LambdaQueryWrapper<>();
         // 角色过滤
-        Set<Long> visibleIds = getVisibleDeviceIds();
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
         if (visibleIds != null) qw.in(AiReviewRecord::getDeviceId, visibleIds);
         if (alarmId != null) qw.eq(AiReviewRecord::getAlarmId, alarmId);
         if (deviceId != null) qw.eq(AiReviewRecord::getDeviceId, deviceId);
@@ -72,7 +55,7 @@ public class AiReviewController {
     public Result<AiReviewRecord> getById(@PathVariable Long id) {
         AiReviewRecord record = aiReviewRecordMapper.selectById(id);
         if (record == null) return Result.error(400, "AI 复核记录不存在");
-        Set<Long> visibleIds = getVisibleDeviceIds();
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
         if (visibleIds != null && !visibleIds.contains(record.getDeviceId())) {
             return Result.error(403, "无权查看该复核记录");
         }
@@ -84,7 +67,7 @@ public class AiReviewController {
     public Result<Void> manualConfirm(@PathVariable Long id, @RequestBody Map<String, String> body) {
         AiReviewRecord record = aiReviewRecordMapper.selectById(id);
         if (record == null) return Result.error(400, "AI 复核记录不存在");
-        Set<Long> visibleIds = getVisibleDeviceIds();
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
         if (visibleIds != null && !visibleIds.contains(record.getDeviceId())) {
             return Result.error(403, "无权操作该复核记录");
         }

@@ -66,7 +66,10 @@ CREATE TABLE IF NOT EXISTS `sys_user` (
     `phone` VARCHAR(20) NULL  COMMENT '手机',
     `email` VARCHAR(128) NULL  COMMENT '邮箱',
     `avatar` VARCHAR(256) NULL  COMMENT '头像',
-    `role` VARCHAR(32) NOT NULL DEFAULT 'RESIDENT'  COMMENT '角色',
+    `role` VARCHAR(32) NOT NULL DEFAULT 'RESIDENT'  COMMENT '角色: ADMIN/RESIDENT',
+    `resident_building` VARCHAR(32) NULL  COMMENT '居民住址-楼栋',
+    `resident_floor` VARCHAR(32) NULL  COMMENT '居民住址-楼层',
+    `resident_room` VARCHAR(32) NULL  COMMENT '居民住址-房间',
     `status` VARCHAR(16) NOT NULL DEFAULT 'ENABLED'  COMMENT '状态',
     `user_ext` JSON NULL  COMMENT '扩展',
     `last_login_ip` VARCHAR(64) NULL  COMMENT '最后IP',
@@ -220,7 +223,7 @@ CREATE TABLE IF NOT EXISTS `ai_review_record` (
 -- broadcast_record
 CREATE TABLE IF NOT EXISTS `broadcast_record` (
     `id` BIGINT NOT NULL AUTO_INCREMENT  COMMENT '主键',
-    `alarm_id` BIGINT NOT NULL  COMMENT '告警ID',
+    `alarm_id` BIGINT NULL  COMMENT '告警ID',
     `device_id` BIGINT NOT NULL  COMMENT '设备ID',
     `broadcast_area` VARCHAR(128) NULL  COMMENT '区域',
     `broadcast_content` TEXT NOT NULL  COMMENT '内容',
