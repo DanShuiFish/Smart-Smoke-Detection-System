@@ -8,12 +8,14 @@ import com.smartsmoke.common.PageResult;
 import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.AiReviewRecord;
 import com.smartsmoke.entity.AlarmRecord;
-import com.smartsmoke.entity.SysUser;
 import com.smartsmoke.mapper.AiReviewRecordMapper;
-import com.smartsmoke.mapper.UserMapper;
 import com.smartsmoke.service.AlarmRecordService;
-import com.smartsmoke.service.DeviceBindingService;
+import com.smartsmoke.service.PermissionService;
+import com.smartsmoke.websocket.AlarmWebSocket;
+import cn.hutool.json.JSONUtil;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -23,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/alarms")
 @RequiredArgsConstructor
@@ -30,23 +33,7 @@ public class AlarmController {
 
     private final AlarmRecordService alarmRecordService;
     private final AiReviewRecordMapper aiReviewRecordMapper;
-    private final DeviceBindingService deviceBindingService;
-    private final UserMapper userMapper;
-
-    /**
-     * ADMIN → null（看全部）；RESIDENT → 已绑定的设备 ID 集合
-     */
-    private Set<Long> getVisibleDeviceIds() {
-        long userId = StpUtil.getLoginIdAsLong();
-        SysUser user = userMapper.selectById(userId);
-        String role = user != null ? user.getRole() : "RESIDENT";
-        if (role == null) return null;
-        String upper = role.toUpperCase();
-        // 管理员角色看全部
-        if (upper.equals("ADMIN") || upper.equals("SYSTEM_ADMIN") || upper.equals("COMMUNITY_ADMIN")) return null;
-        List<Long> boundIds = deviceBindingService.getMyDeviceIds(userId);
-        return boundIds.isEmpty() ? Set.of(-1L) : Set.copyOf(boundIds);
-    }
+    private final PermissionService permissionService;
 
     // 9.1 告警列表（分页 + 多条件筛选）
     @GetMapping
@@ -62,7 +49,7 @@ public class AlarmController {
             @RequestParam(required = false) String end) {
         LambdaQueryWrapper<AlarmRecord> qw = new LambdaQueryWrapper<>();
         // 角色过滤
-        Set<Long> visibleIds = getVisibleDeviceIds();
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
         if (visibleIds != null) qw.in(AlarmRecord::getDeviceId, visibleIds);
         if (status != null) qw.eq(AlarmRecord::getAlarmStatus, status);
         if (type != null) qw.eq(AlarmRecord::getAlarmType, type);
@@ -87,7 +74,7 @@ public class AlarmController {
     public Result<AlarmRecord> getById(@PathVariable Long id) {
         AlarmRecord alarm = alarmRecordService.getById(id);
         if (alarm == null) return Result.error(400, "告警不存在");
-        Set<Long> visibleIds = getVisibleDeviceIds();
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
         if (visibleIds != null && !visibleIds.contains(alarm.getDeviceId())) {
             return Result.error(403, "无权查看该告警");
         }
@@ -97,80 +84,92 @@ public class AlarmController {
         return Result.success(alarm);
     }
 
-    // 9.3 确认告警
-    @PutMapping("/{id}/confirm")
-    public Result<Void> confirm(@PathVariable Long id, @RequestBody Map<String, String> body) {
+    // ===== 告警操作守卫：统一存在+权限+状态检查 =====
+    // 返回 Result.success(record) 表示通过，Result.error(...) 表示拒绝
+    private Result<AlarmRecord> requireAlarmForUpdate(Long id, String... allowedStatuses) {
         AlarmRecord r = alarmRecordService.getById(id);
         if (r == null) return Result.error(400, "告警不存在");
-        Set<Long> visibleIds = getVisibleDeviceIds();
-        if (visibleIds != null && !visibleIds.contains(r.getDeviceId())) {
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
+        if (visibleIds != null && !visibleIds.contains(r.getDeviceId()))
             return Result.error(403, "无权操作该告警");
+        for (String s : allowedStatuses)
+            if (s.equals(r.getAlarmStatus())) return Result.success(r);
+        return Result.error(400, "当前状态 " + r.getAlarmStatus() + " 不可执行此操作");
+    }
+
+    // ===== WebSocket 状态变更推送 =====
+    private void pushAlarmUpdate(AlarmRecord r) {
+        try {
+            var payload = new java.util.HashMap<String, Object>();
+            payload.put("kind", "alarm_update");
+            payload.put("alarmId", r.getId());
+            payload.put("deviceId", r.getDeviceId());
+            payload.put("alarmStatus", r.getAlarmStatus());
+            payload.put("alarmType", r.getAlarmType());
+            payload.put("alarmLevel", r.getAlarmLevel());
+            AlarmWebSocket.broadcastByDevice(r.getDeviceId(), JSONUtil.toJsonStr(payload));
+        } catch (Exception e) {
+            log.error("WebSocket 状态推送失败: {}", e.getMessage());
         }
-        String cur = r.getAlarmStatus();
-        if (!"PENDING".equals(cur) && !"CONFIRMING".equals(cur)) {
-            return Result.error(400, "当前状态 " + cur + " 不可确认，仅 PENDING/CONFIRMING 可确认");
-        }
+    }
+
+    // 9.3 确认告警 (PENDING/CONFIRMING → CONFIRMED)
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/{id}/confirm")
+    public Result<Void> confirm(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        Result<AlarmRecord> guard = requireAlarmForUpdate(id, "PENDING", "CONFIRMING");
+        if (guard.getCode() != 200) return Result.error(guard.getCode(), guard.getMsg());
+        AlarmRecord r = guard.getData();
         r.setAlarmStatus("CONFIRMED");
         r.setConfirmUserId(StpUtil.getLoginIdAsLong());
         r.setConfirmMethod(body.getOrDefault("confirmMethod", "MANUAL"));
         r.setConfirmTime(LocalDateTime.now());
         alarmRecordService.updateById(r);
+        pushAlarmUpdate(r);
         return Result.success();
     }
 
-    // 9.4 处置告警
+    // 9.4 处置告警 (CONFIRMED → RESOLVED)
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}/resolve")
     public Result<Void> resolve(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        AlarmRecord r = alarmRecordService.getById(id);
-        if (r == null) return Result.error(400, "告警不存在");
-        Set<Long> visibleIds = getVisibleDeviceIds();
-        if (visibleIds != null && !visibleIds.contains(r.getDeviceId())) {
-            return Result.error(403, "无权操作该告警");
-        }
-        if (!"CONFIRMED".equals(r.getAlarmStatus())) {
-            return Result.error(400, "当前状态 " + r.getAlarmStatus() + " 不可处置，仅 CONFIRMED 可处置");
-        }
+        Result<AlarmRecord> guard = requireAlarmForUpdate(id, "CONFIRMED");
+        if (guard.getCode() != 200) return Result.error(guard.getCode(), guard.getMsg());
+        AlarmRecord r = guard.getData();
         r.setAlarmStatus("RESOLVED");
         r.setResolveUserId(StpUtil.getLoginIdAsLong());
         r.setResolveMethod(body.getOrDefault("resolveMethod", "ON_SITE"));
         r.setResolveDetail(body.get("resolveDetail"));
         r.setResolveTime(LocalDateTime.now());
         alarmRecordService.updateById(r);
+        pushAlarmUpdate(r);
         return Result.success();
     }
 
-    // 9.5 归档告警
+    // 9.5 归档告警 (RESOLVED → ARCHIVED)
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}/archive")
     public Result<Void> archive(@PathVariable Long id) {
-        AlarmRecord r = alarmRecordService.getById(id);
-        if (r == null) return Result.error(400, "告警不存在");
-        Set<Long> visibleIds = getVisibleDeviceIds();
-        if (visibleIds != null && !visibleIds.contains(r.getDeviceId())) {
-            return Result.error(403, "无权操作该告警");
-        }
-        if (!"RESOLVED".equals(r.getAlarmStatus())) {
-            return Result.error(400, "当前状态 " + r.getAlarmStatus() + " 不可归档，仅 RESOLVED 可归档");
-        }
+        Result<AlarmRecord> guard = requireAlarmForUpdate(id, "RESOLVED");
+        if (guard.getCode() != 200) return Result.error(guard.getCode(), guard.getMsg());
+        AlarmRecord r = guard.getData();
         r.setAlarmStatus("ARCHIVED");
         alarmRecordService.updateById(r);
+        pushAlarmUpdate(r);
         return Result.success();
     }
 
     // 9.6 关闭告警（任意非终态 → CLOSED）
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}/close")
     public Result<Void> close(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        AlarmRecord r = alarmRecordService.getById(id);
-        if (r == null) return Result.error(400, "告警不存在");
-        Set<Long> visibleIds = getVisibleDeviceIds();
-        if (visibleIds != null && !visibleIds.contains(r.getDeviceId())) {
-            return Result.error(403, "无权操作该告警");
-        }
-        if ("ARCHIVED".equals(r.getAlarmStatus()) || "CLOSED".equals(r.getAlarmStatus())) {
-            return Result.error(400, "当前状态 " + r.getAlarmStatus() + " 已是终态，不可关闭");
-        }
+        Result<AlarmRecord> guard = requireAlarmForUpdate(id, "PENDING", "CONFIRMING", "CONFIRMED", "RESOLVED");
+        if (guard.getCode() != 200) return Result.error(guard.getCode(), guard.getMsg());
+        AlarmRecord r = guard.getData();
         r.setAlarmStatus("CLOSED");
         r.setRemark(body.get("remark"));
         alarmRecordService.updateById(r);
+        pushAlarmUpdate(r);
         return Result.success();
     }
 }

@@ -5,7 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>【居民端】智慧烟感预警系统</title>
   <link rel="stylesheet" href="/user/user.css" />
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script src="/fe2/lib/echarts.min.js"></script>
+  <style>
+    @keyframes alarmPulse { 0%,100% { box-shadow: 0 4px 24px rgba(0,0,0,0.12); } 50% { box-shadow: 0 4px 32px rgba(239,68,68,0.5), 0 0 0 4px rgba(239,68,68,0.15); } }
+    @keyframes broadcastFlash { 0%,100% { box-shadow: 0 4px 24px rgba(239,68,68,0.3); background: #fef2f2; } 50% { box-shadow: 0 4px 40px rgba(239,68,68,0.7), 0 0 0 6px rgba(239,68,68,0.3); background: #fee2e2; } }
+    @keyframes fadeIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
+    .alarm-card { animation: alarmPulse 2s ease-in-out infinite, fadeIn 0.3s ease; }
+    .broadcast-card { animation: broadcastFlash 1s ease-in-out infinite, fadeIn 0.3s ease; }
+  </style>
 </head>
 <body>
   <div class="app-layout">
@@ -67,6 +74,7 @@
 
       <!-- 全局告警提示条 -->
       <div id="globalAlert" class="global-alert hidden"></div>
+      <div id="alarmBannerStack" style="position:fixed;top:70px;right:16px;z-index:9999;max-width:380px;display:flex;flex-direction:column;gap:8px;"></div>
 
       <!-- ====== 视图：仪表盘 ====== -->
       <section id="view-dashboard" class="view active">
@@ -80,6 +88,11 @@
           <article class="kpi-card">
             <h3>在线设备</h3>
             <strong id="kpiOnlineDevices">0</strong>
+            <span class="kpi-sub">台</span>
+          </article>
+          <article class="kpi-card warn">
+            <h3>离线设备</h3>
+            <strong id="kpiOfflineDevices">0</strong>
             <span class="kpi-sub">台</span>
           </article>
           <article class="kpi-card">
@@ -139,9 +152,16 @@
         <div class="module-heading">
           <div>
             <h3>我的设备</h3>
-            <p>查看已绑定设备的实时状态和历史趋势</p>
+            <p>查看我地址下设备的实时状态和历史趋势</p>
           </div>
-          <button class="btn btn-main" id="btnRefreshDevices">刷新</button>
+          <div class="toolbar">
+            <select id="residentDeviceStatusFilter">
+              <option value="">全部</option>
+              <option value="ONLINE">在线</option>
+              <option value="OFFLINE">离线</option>
+            </select>
+            <button class="btn btn-main" id="btnRefreshDevices">刷新</button>
+          </div>
         </div>
         <div class="panel">
           <div class="table-wrap">
@@ -212,7 +232,7 @@
           <article class="panel chat-panel-full">
             <div class="panel-header">
               <h3>消防知识智能问答</h3>
-              <button class="btn btn-ghost" id="btnClearChat" style="color:var(--danger);">清除对话</button>
+              <div class="toolbar"><button class="btn btn-main" id="btnNewConversation" style="margin-right:4px;">新建对话</button><button class="btn btn-ghost" id="btnClearChat" style="color:var(--danger);">清除</button></div>
             </div>
             <div id="chatLog" class="chat-log">
               <div class="chat-empty-state" id="chatEmpty">

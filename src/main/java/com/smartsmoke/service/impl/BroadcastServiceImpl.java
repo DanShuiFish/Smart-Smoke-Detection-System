@@ -56,21 +56,23 @@ public class BroadcastServiceImpl implements BroadcastService {
                                                  String triggerMode,
                                                  Long triggerUserId) {
         if (StrUtil.isBlank(broadcastContent)) {
-            throw new IllegalArgumentException("骞挎挱鍐呭涓嶈兘涓虹┖");
+            throw new IllegalArgumentException("广播内容不能为空");
         }
 
-        AlarmRecord alarm = resolveTargetAlarm(alarmId, deviceId);
-        if (alarm == null) {
-            throw new IllegalArgumentException("未找到可联动的告警记录");
+        // 查设备（必须存在）
+        SmokeDevice device = deviceMapper.selectById(deviceId);
+        if (device == null) {
+            throw new IllegalArgumentException("未找到广播目标设备");
         }
 
-        SmokeDevice device = deviceMapper.selectById(alarm.getDeviceId());
+        // 尝试关联告警（可选，区域广播无告警也允许）
+        AlarmRecord alarm = (alarmId != null) ? resolveTargetAlarm(alarmId, deviceId) : null;
         if (device == null) {
             throw new IllegalArgumentException("未找到广播目标设备");
         }
 
         BroadcastRecord record = new BroadcastRecord();
-        record.setAlarmId(alarm.getId());
+        record.setAlarmId(alarm != null ? alarm.getId() : null);
         record.setDeviceId(device.getId());
         record.setBroadcastArea(StrUtil.blankToDefault(broadcastArea, buildBroadcastArea(device)));
         record.setBroadcastContent(broadcastContent);
@@ -82,24 +84,27 @@ public class BroadcastServiceImpl implements BroadcastService {
         record.setRemark("manual_broadcast");
         broadcastRecordMapper.insert(record);
 
-        boolean sent = mqttPublisher.sendCommand(
-                device.getDeviceId(),
-                buildPayload(
-                        alarm,
-                        device,
-                        record.getBroadcastContent(),
-                        record.getBroadcastType(),
-                        record.getTriggerMode(),
-                        record.getBroadcastArea()
-                )
-        );
+        // 区域广播无告警时使用简化 payload
+        String payload;
+        if (alarm != null) {
+            payload = buildPayload(alarm, device, record.getBroadcastContent(),
+                    record.getBroadcastType(), record.getTriggerMode(), record.getBroadcastArea());
+        } else {
+            payload = "{\"cmd\":\"broadcast\",\"area\":\"" + record.getBroadcastArea()
+                    + "\",\"content\":\"" + record.getBroadcastContent() + "\"}";
+        }
+        boolean sent = false;
+        try { sent = mqttPublisher.sendCommand(device.getDeviceId(), payload); }
+        catch (Exception e) { log.warn("MQTT send failed for device {}: {}", device.getDeviceId(), e.getMessage()); }
 
         fillSendResult(record, sent, sent ? null : "MQTT publish failed");
         broadcastRecordMapper.updateById(record);
-        if (sent) {
+        if (sent && alarm != null) {
             markAlarmBroadcasted(alarm, "MANUAL", "manual:" + record.getBroadcastArea());
-            pushWebSocketNotification(record, device, alarm);
         }
+        // WebSocket 推送 — 不受 MQTT 影响，确保模拟环境也能收到
+        pushWebSocketNotification(record, device, alarm);
+        log.info("广播完成: device={}, area={}, wsPushed=true", device.getDeviceId(), record.getBroadcastArea());
         return record;
     }
 
@@ -387,8 +392,9 @@ public class BroadcastServiceImpl implements BroadcastService {
             wsPayload.set("broadcastContent", record.getBroadcastContent());
             wsPayload.set("time", record.getSendTime() != null ? record.getSendTime().toString() : LocalDateTime.now().toString());
 
-            AlarmWebSocket.broadcast(wsPayload.toString());
-            log.info("Broadcast WebSocket notification pushed to all clients, area={}", record.getBroadcastArea());
+            // 按设备推送：管理员全收，居民按地址匹配
+            AlarmWebSocket.broadcastByDevice(device != null ? device.getId() : null, wsPayload.toString());
+            log.info("Broadcast WS pushed: device={}, area={}", device != null ? device.getId() : null, record.getBroadcastArea());
         } catch (Exception e) {
             log.warn("Failed to push broadcast WebSocket notification", e);
         }

@@ -5,19 +5,24 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smartsmoke.common.PageResult;
 import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.BroadcastRecord;
+import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.smartsmoke.entity.SmokeDevice;
 import com.smartsmoke.mapper.BroadcastRecordMapper;
+import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.service.BroadcastService;
+import com.smartsmoke.websocket.AlarmWebSocket;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/broadcasts")
 @RequiredArgsConstructor
@@ -25,6 +30,37 @@ public class BroadcastController {
 
     private final BroadcastRecordMapper broadcastRecordMapper;
     private final BroadcastService broadcastService;
+    private final DeviceMapper deviceMapper;
+
+    // 按区域广播：building 必填，floor 可选（不填则广播整栋楼）
+    @PostMapping("/area")
+    public Result<Map<String, Object>> broadcastArea(@RequestBody Map<String, Object> body) {
+        String building = str(body, "building");
+        String floor = str(body, "floor");
+        String content = str(body, "broadcastContent");
+        if (building == null || building.isEmpty()) return Result.error(400, "building 必填");
+        if (content == null || content.isEmpty()) return Result.error(400, "broadcastContent 必填");
+
+        LambdaQueryWrapper<SmokeDevice> qw = new LambdaQueryWrapper<SmokeDevice>()
+                .eq(SmokeDevice::getLocationBuilding, building);
+        if (floor != null && !floor.isEmpty()) qw.eq(SmokeDevice::getLocationFloor, floor);
+        List<SmokeDevice> devices = deviceMapper.selectList(qw);
+
+        int count = 0;
+        for (SmokeDevice d : devices) {
+            try {
+                broadcastService.createManualBroadcast(null, d.getId(),
+                        (building + (floor != null ? floor : "")),
+                        content,
+                        body.get("broadcastType") != null ? body.get("broadcastType").toString() : "EMERGENCY",
+                        body.get("triggerMode") != null ? body.get("triggerMode").toString() : "MANUAL",
+                        null);
+                count++;
+            } catch (Exception e) { log.warn("广播设备 {} 失败: {}", d.getDeviceId(), e.getMessage()); }
+        }
+        return Result.success(Map.of("building", building, "floor", floor != null ? floor : "全部",
+                "deviceCount", devices.size(), "sentCount", count));
+    }
 
     @PostMapping
     public Result<BroadcastRecord> create(@RequestBody Map<String, Object> body) {
@@ -75,6 +111,7 @@ public class BroadcastController {
         return Result.success(record);
     }
 
+    private String str(Map<String, Object> m, String key) { Object v = m.get(key); return v != null ? v.toString() : null; }
     private String stringValue(Object value) {
         return value == null ? null : value.toString();
     }

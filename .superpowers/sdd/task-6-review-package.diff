@@ -1,0 +1,73 @@
+diff --git a/src/main/resources/static/fe2/dashboard-enhanced.js b/src/main/resources/static/fe2/dashboard-enhanced.js
+index 9af873a..59bfb1d 100644
+--- a/src/main/resources/static/fe2/dashboard-enhanced.js
++++ b/src/main/resources/static/fe2/dashboard-enhanced.js
+@@ -284,28 +284,30 @@ function switchView(view) {
+   document.querySelectorAll(".view").forEach((node) => node.classList.remove("active"));
+   const target = el("view-" + view);
+   if (target) target.classList.add("active");
+   setNavState(view);
+   const map = {
+     screen: ["首页 / 数据大屏", "设备态势、实时监测、告警联动"],
+     devices: ["设备管理", "设备状态、关键参数与运行信息"],
+     analysis: ["数据分析", "趋势分析、类型占比与楼栋分布"],
+     ai: ["AI 智能问答", "知识问答与火情研判"],
+     alarms: ["告警日志", "告警记录、确认和处置流程"],
++    reviews: ["AI 视觉复核", "查看 AI 火焰/烟雾识别结果，支持人工复核确认"],
+   };
+   const pair = map[view] || map.screen;
+   const title = el("viewTitle");
+   const subtitle = el("viewSubTitle");
+   const banner = el("bannerTitle");
+   if (title) title.textContent = pair[0];
+   if (subtitle) subtitle.textContent = pair[1];
+   if (banner) banner.textContent = pair[0];
++  if (view === "reviews") { loadReviewRows(1); }
+   setTimeout(resizeVisibleCharts, 80);
+ }
+ function initMenus() {
+   document.querySelectorAll(".nav-btn").forEach((btn) => btn.addEventListener("click", () => switchView(btn.dataset.view)));
+   const openAlarms = el("btnOpenAlarms");
+   if (openAlarms) openAlarms.addEventListener("click", () => switchView("alarms"));
+ }
+ 
+ function renderScreenKpi() {
+   const stats = state.screen.stats || {};
+@@ -1579,20 +1581,37 @@ function bindEvents() {
+     loadDevices(1);
+     renderDeviceStatsCards();
+   }));
+   // 新 AI 视图按钮
+   const btnClearChat = el("btnClearChat"); if (btnClearChat) btnClearChat.addEventListener("click", clearChat);
+   const btnOpenLogDrawer = el("btnOpenLogDrawer"); if (btnOpenLogDrawer) btnOpenLogDrawer.addEventListener("click", openLogDrawer);
+   const btnCloseDrawer = el("btnCloseDrawer"); if (btnCloseDrawer) btnCloseDrawer.addEventListener("click", closeLogDrawer);
+   const logDrawerMask = el("logDrawerMask"); if (logDrawerMask) logDrawerMask.addEventListener("click", closeLogDrawer);
+   // 绑定弹窗
+   const bindForm = el("bindForm"); if (bindForm) bindForm.addEventListener("submit", submitBindForm);
++  // ------ AI复核页面事件 ------
++  var btnRefreshReviews = el("btnRefreshReviews");
++  var btnSearchReviews = el("btnSearchReviews");
++  var btnResetReviews = el("btnResetReviews");
++  if (btnRefreshReviews) btnRefreshReviews.addEventListener("click", function() { loadReviewRows(1); });
++  if (btnSearchReviews) btnSearchReviews.addEventListener("click", function() { loadReviewRows(1); });
++  if (btnResetReviews) btnResetReviews.addEventListener("click", function() {
++    if (el("reviewFilterAlarmId")) el("reviewFilterAlarmId").value = "";
++    if (el("reviewFilterDeviceId")) el("reviewFilterDeviceId").value = "";
++    if (el("reviewFilterResult")) el("reviewFilterResult").value = "";
++    loadReviewRows(1);
++  });
++
++  // 筛选输入框回车键支持
++  [el("reviewFilterAlarmId"), el("reviewFilterDeviceId")].forEach(function(node) {
++    if (node) node.addEventListener("keydown", function(event) { if (event.key === "Enter") loadReviewRows(1); });
++  });
+   bindQuickQs();
+   document.addEventListener("click", (event) => {
+     const modal = el("detailModal");
+     if (modal && !modal.classList.contains("hidden") && event.target === modal.querySelector(".modal-mask")) closeDetailModal();
+     const formModal = el("deviceFormModal");
+     if (formModal && !formModal.classList.contains("hidden") && event.target === formModal.querySelector(".modal-mask")) closeDeviceFormModal();
+     if (event.target && event.target.matches && event.target.matches("[data-device-form-close='true']")) closeDeviceFormModal();
+     if (event.target && event.target.matches && event.target.matches("[data-modal-close='true']")) closeDetailModal();
+     if (event.target && event.target.matches && event.target.matches("[data-bind-close='true']")) closeBindModal();
+     const bindModal = el("bindModal");

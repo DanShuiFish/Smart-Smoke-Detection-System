@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>【管理端-大屏】智慧烟感预警系统</title>
     <link rel="stylesheet" href="./dashboard-enhanced.css" />
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <script src="./lib/echarts.min.js"></script>
+    <style>
+      @keyframes alarmPulse { 0%,100% { box-shadow: 0 4px 24px rgba(0,0,0,0.12); } 50% { box-shadow: 0 4px 32px rgba(239,68,68,0.5), 0 0 0 4px rgba(239,68,68,0.15); } }
+      @keyframes broadcastFlash { 0%,100% { box-shadow: 0 4px 24px rgba(239,68,68,0.3); background: #fef2f2; } 50% { box-shadow: 0 4px 40px rgba(239,68,68,0.7), 0 0 0 6px rgba(239,68,68,0.3); background: #fee2e2; } }
+      @keyframes fadeIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
+      .alarm-card { animation: alarmPulse 2s ease-in-out infinite, fadeIn 0.3s ease; }
+      .broadcast-card { animation: broadcastFlash 1s ease-in-out infinite, fadeIn 0.3s ease; }
+    </style>
   </head>
   <body>
     <div class="app-layout">
@@ -23,6 +30,8 @@
           <button class="nav-btn" data-view="analysis" title="数据分析"><span class="nav-icon">分</span><span class="nav-text">数据分析</span></button>
           <button class="nav-btn" data-view="ai" title="AI 智能问答"><span class="nav-icon">智</span><span class="nav-text">AI 智能问答</span></button>
           <button class="nav-btn" data-view="alarms" title="告警日志"><span class="nav-icon">警</span><span class="nav-text">告警日志</span></button>
+          <button class="nav-btn" data-view="reviews" title="AI视觉复核"><span class="nav-icon">视</span><span class="nav-text">AI视觉复核</span></button>
+          <button class="nav-btn" data-view="broadcasts" title="广播管理"><span class="nav-icon">播</span><span class="nav-text">广播管理</span></button>
         </nav>
       </aside>
 
@@ -46,11 +55,13 @@
         </header>
 
         <div id="globalAlert" class="global-alert hidden"></div>
+        <div id="alarmBannerStack" style="position:fixed;top:70px;right:16px;z-index:9999;max-width:420px;display:flex;flex-direction:column;gap:8px;"></div>
 
         <section id="view-screen" class="view active">
           <div class="kpi-grid">
             <article class="kpi-card"><h3>设备总数</h3><strong id="kpiTotalDevices">0</strong></article>
             <article class="kpi-card"><h3>在线设备</h3><strong id="kpiOnlineDevices">0</strong></article>
+            <article class="kpi-card warn"><h3>离线设备</h3><strong id="kpiOfflineDevices">0</strong></article>
             <article class="kpi-card"><h3>今日告警</h3><strong id="kpiTodayAlarms">0</strong></article>
             <article class="kpi-card danger"><h3>当前火警</h3><strong id="kpiPendingAlarms">0</strong></article>
           </div>
@@ -142,7 +153,7 @@
         </section>
 
         <section id="view-ai" class="view">
-          <div class="module-heading"><div><h3>AI 智能问答</h3><p>灾情研判，辅助决策及广播指令联动</p></div><div class="toolbar"><button id="btnOpenLogDrawer" class="btn ghost">📋 调试日志<span class="log-badge-count hidden" id="logBadge">0</span></button><button id="btnClearChat" class="btn ghost" style="color:var(--danger);">清除聊天</button></div></div>
+          <div class="module-heading"><div><h3>AI 智能问答</h3><p>灾情研判，辅助决策及广播指令联动</p></div><div class="toolbar"><button id="btnNewConversation" class="btn btn-main">新建对话</button><button id="btnOpenLogDrawer" class="btn ghost">📋 调试日志<span class="log-badge-count hidden" id="logBadge">0</span></button><button id="btnClearChat" class="btn ghost" style="color:var(--danger);">清除聊天</button></div></div>
           <div class="panel-grid ai-grid">
             <article class="panel chat-panel-full">
               <div class="panel-header"><h3>消防知识库对话</h3></div>
@@ -155,8 +166,11 @@
               <div class="panel-header"><h3>当前大模型状态</h3></div>
               <div id="aiJudgement" class="judgement"><div class="model-empty-state"><strong>暂无活跃告警</strong><p>请等待模型响应事件</p></div></div>
               <div class="model-stats"><div class="stat-row"><span class="stat-label">模型引擎</span><span class="stat-value" id="modelEngine">DeepSeek-V4</span></div><div class="stat-row"><span class="stat-label">响应延迟</span><span class="stat-value" id="modelLatency">— ms</span></div><div class="stat-row"><span class="stat-label">会话轮次</span><span class="stat-value" id="modelRounds">0</span></div><div class="stat-row"><span class="stat-label">Token 用量</span><span class="stat-value" id="modelTokens">—</span></div></div>
-              <button id="btnBroadcast" class="btn btn-main danger-wide">📢 下发广播指令</button>
-              <p style="text-align:center;font-size:11px;color:var(--muted);margin:6px 0 0;">将 AI 分析结论转化为设备广播动作</p>
+              <p style="text-align:center;font-size:11px;color:var(--muted);margin:6px 0 0;">在"广播管理"页面下发区域广播指令</p>
+            </article>
+            <article class="panel">
+              <div class="panel-header"><h3>对话历史</h3><button id="btnRefreshHistory" class="btn ghost" style="font-size:12px;">刷新</button></div>
+              <div id="conversationHistory" class="conv-history"><div class="empty-state"><strong>暂无对话</strong><p>发送第一条消息后在此显示</p></div></div>
             </article>
           </div>
         </section>
@@ -174,6 +188,87 @@
             <div class="batch-bar"><span id="alarmBatchHint" class="batch-hint">已选择 0 条告警</span><div class="batch-actions"><button id="btnSelectAllAlarms" class="btn">全选</button><button id="btnClearAlarms" class="btn">取消选择</button><button id="btnBatchConfirmAlarms" class="btn btn-main">批量确认</button><button id="btnBatchResolveAlarms" class="btn btn-main">批量处置</button><button id="btnBatchArchiveAlarms" class="btn">批量归档</button><button id="btnBatchCloseAlarms" class="btn danger">批量关闭</button></div></div>
             <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="alarmSelectAll" /></th><th>时间</th><th>告警类型</th><th>等级</th><th>状态</th><th>设备</th><th>楼栋</th><th>处置操作</th><th>详情</th></tr></thead><tbody id="alarmTableBody"></tbody></table></div>
             <div id="alarmPagination" class="pagination-bar"></div>
+          </div>
+        </section>
+
+        <section id="view-reviews" class="view">
+          <div class="module-heading">
+            <div><h3>AI 视觉复核</h3><p>查看 AI 火焰/烟雾识别结果，支持人工复核确认</p></div>
+            <button id="btnRefreshReviews" class="btn">刷新</button>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h3>复核记录列表</h3>
+              <div class="toolbar">
+                <input id="reviewFilterAlarmId" type="text" placeholder="告警ID" style="width:100px;" />
+                <input id="reviewFilterDeviceId" type="text" placeholder="设备ID" style="width:100px;" />
+                <select id="reviewFilterResult">
+                  <option value="">全部结果</option>
+                  <option value="FIRE_CONFIRMED">AI确认火情</option>
+                  <option value="NO_FIRE">AI排除火情</option>
+                  <option value="UNCERTAIN">不确定</option>
+                </select>
+                <button id="btnSearchReviews" class="btn btn-main">查询</button>
+                <button id="btnResetReviews" class="btn">重置</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>告警ID</th>
+                    <th>设备ID</th>
+                    <th>复核类型</th>
+                    <th>AI 判定结果</th>
+                    <th>置信度</th>
+                    <th>人工复核</th>
+                    <th>人工结果</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="reviewTableBody"></tbody>
+              </table>
+            </div>
+            <div id="reviewPagination" class="pagination-bar"></div>
+          </div>
+        </section>
+
+        <section id="view-broadcasts" class="view">
+          <div class="module-heading">
+            <div><h3>广播管理</h3><p>按楼栋/楼层下发广播指令，查看历史记录</p></div>
+            <button id="btnRefreshBroadcasts" class="btn">刷新</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+            <!-- 新建广播 -->
+            <div class="panel">
+              <div class="panel-header"><h3>新建广播</h3></div>
+              <div style="padding:0 16px 16px;">
+                <label style="font-size:12px;color:#64748b;font-weight:600;">楼栋</label>
+                <select id="broadcastBuildingSel" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 10px;">
+                  <option value="">-- 选择楼栋 --</option>
+                </select>
+                <label style="font-size:12px;color:#64748b;font-weight:600;">楼层（可选，不选=整栋楼）</label>
+                <select id="broadcastFloorSel" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 10px;">
+                  <option value="">-- 全部楼层 --</option>
+                </select>
+                <label style="font-size:12px;color:#64748b;font-weight:600;">广播内容</label>
+                <textarea id="broadcastContent" rows="4" placeholder="请输入广播内容..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0 10px;font-size:13px;resize:vertical;"></textarea>
+                <button id="btnSendBroadcast" class="btn btn-main danger-wide" style="width:100%;">📢 下发广播</button>
+              </div>
+            </div>
+            <!-- 广播历史 -->
+            <div class="panel">
+              <div class="panel-header"><h3>广播历史</h3></div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>时间</th><th>区域</th><th>类型</th><th>状态</th></tr></thead>
+                  <tbody id="broadcastTableBody"></tbody>
+                </table>
+              </div>
+              <div id="broadcastPagination" class="pagination-bar"></div>
+            </div>
           </div>
         </section>
 
@@ -250,45 +345,6 @@
                 <button id="btnSubmitDeviceForm" type="submit" class="btn btn-main">保存</button>
               </div>
             </form>
-          </div>
-        </div>
-        <div id="bindModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bindModalTitle">
-          <div class="modal-mask" data-bind-close="true"></div>
-          <div class="modal-panel" style="width:min(860px,100%);">
-            <div class="modal-header"><h3 id="bindModalTitle">设备绑定</h3><button class="btn" type="button" data-bind-close="true">关闭</button></div>
-            <div class="modal-body">
-              <!-- 绑定列表 -->
-              <div class="panel" style="margin-bottom:16px;">
-                <div class="panel-header"><h3>当前绑定用户</h3></div>
-                <div class="table-wrap"><table class="data-table"><thead><tr><th>用户姓名</th><th>设备名称</th><th>绑定类型</th><th>状态</th><th>绑定时间</th><th>操作</th></tr></thead><tbody id="bindTableBody"></tbody></table></div>
-                <div id="bindPagination" class="pagination-bar"></div>
-              </div>
-              <!-- 新增绑定 -->
-              <form id="bindForm" class="device-form" novalidate>
-                <div class="device-form-grid">
-                  <label class="form-field">
-                    <span>选择用户 <span style="color:var(--danger);">*</span></span>
-                    <select id="bindUserId" name="userId" required>
-                      <option value="">-- 请选择用户 --</option>
-                    </select>
-                  </label>
-                  <label class="form-field">
-                    <span>绑定类型</span>
-                    <select id="bindBindType" name="bindType">
-                      <option value="OWNER">管理者</option>
-                      <option value="VIEWER">使用者</option>
-                    </select>
-                  </label>
-                  <label class="form-field form-field-full">
-                    <span>备注</span>
-                    <input id="bindRemark" name="remark" type="text" maxlength="200" placeholder="可选备注" />
-                  </label>
-                </div>
-                <div class="form-actions">
-                  <button type="submit" class="btn btn-main">新增绑定</button>
-                </div>
-              </form>
-            </div>
           </div>
         </div>
 

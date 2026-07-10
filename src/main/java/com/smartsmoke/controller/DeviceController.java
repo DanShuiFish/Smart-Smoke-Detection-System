@@ -10,11 +10,10 @@ import com.smartsmoke.entity.DeviceBinding;
 import com.smartsmoke.entity.DeviceStatusStatsVO;
 import com.smartsmoke.entity.SensorData;
 import com.smartsmoke.entity.SmokeDevice;
-import com.smartsmoke.entity.SysUser;
 import com.smartsmoke.mapper.SensorDataMapper;
-import com.smartsmoke.mapper.UserMapper;
 import com.smartsmoke.service.DeviceBindingService;
 import com.smartsmoke.service.DeviceService;
+import com.smartsmoke.service.PermissionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
@@ -31,24 +30,8 @@ import java.util.Set;
 public class DeviceController {
     private final DeviceService deviceService;
     private final DeviceBindingService deviceBindingService;
-    private final UserMapper userMapper;
     private final SensorDataMapper sensorDataMapper;
-
-    /**
-     * 鑾峰彇褰撳墠鐢ㄦ埛鍙鐨勮澶?ID 闆嗗悎銆?
-     * ADMIN 鈫?null锛堢湅鍏ㄩ儴锛夛紱RESIDENT 鈫?宸茬粦瀹氱殑璁惧 ID 闆嗗悎
-     */
-    private Set<Long> getVisibleDeviceIds() {
-        long userId = StpUtil.getLoginIdAsLong();
-        SysUser user = userMapper.selectById(userId);
-        String role = user != null ? user.getRole() : "RESIDENT";
-        if (role == null) return null;
-        String upper = role.toUpperCase();
-        // 绠＄悊鍛樿鑹茬湅鍏ㄩ儴
-        if (upper.equals("ADMIN") || upper.equals("SYSTEM_ADMIN") || upper.equals("COMMUNITY_ADMIN")) return null;
-        List<Long> boundIds = deviceBindingService.getMyDeviceIds(userId);
-        return boundIds.isEmpty() ? Set.of(-1L) : Set.copyOf(boundIds);
-    }
+    private final PermissionService permissionService;
 
     @GetMapping
     public Result<PageResult<SmokeDevice>> listDevices(
@@ -59,7 +42,7 @@ public class DeviceController {
             @RequestParam(required = false) String keyword) {
         LambdaQueryWrapper<SmokeDevice> qw = new LambdaQueryWrapper<>();
         qw.eq(SmokeDevice::getIsDeleted, 0);
-        Set<Long> visibleIds = getVisibleDeviceIds();
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
         if (visibleIds != null) qw.in(SmokeDevice::getId, visibleIds);
         if (StringUtils.hasText(status)) qw.eq(SmokeDevice::getStatus, status);
         if (StringUtils.hasText(building)) qw.eq(SmokeDevice::getLocationBuilding, building);
@@ -73,7 +56,7 @@ public class DeviceController {
 
     @GetMapping("/stats")
     public Result<DeviceStatusStatsVO> getStats() {
-        Set<Long> visibleIds = getVisibleDeviceIds();
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
         if (visibleIds == null) {
             return Result.success(deviceService.getStats());
         }
@@ -154,7 +137,7 @@ public class DeviceController {
 
     @GetMapping("/{id}")
     public Result<SmokeDevice> getDeviceById(@PathVariable Long id) {
-        Set<Long> visibleIds = getVisibleDeviceIds();
+        Set<Long> visibleIds = permissionService.getVisibleDeviceIds();
         if (visibleIds != null && !visibleIds.contains(id)) {
             return Result.error(403, "无权查看该设备");
         }
@@ -167,6 +150,7 @@ public class DeviceController {
 
     @PostMapping
     public Result<SmokeDevice> createDevice(@Valid @RequestBody SmokeDevice device) {
+        if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权创建设备");
         SmokeDevice exist = deviceService.lambdaQuery()
                 .eq(SmokeDevice::getDeviceId, device.getDeviceId()).one();
         if (exist != null) {
@@ -194,6 +178,7 @@ public class DeviceController {
 
     @PutMapping("/{id}")
     public Result<SmokeDevice> updateDevice(@PathVariable Long id, @Valid @RequestBody SmokeDevice device) {
+        if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权修改设备");
         SmokeDevice exist = deviceService.getById(id);
         if (exist == null) return Result.error(404, "设备不存在");
         SmokeDevice duplicate = deviceService.lambdaQuery()
@@ -215,12 +200,14 @@ public class DeviceController {
 
     @DeleteMapping("/{id}")
     public Result<Void> deleteDevice(@PathVariable Long id) {
+        if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权删除设备");
         boolean removed = deviceService.removeById(id);
         return removed ? Result.success() : Result.error(404, "设备不存在");
     }
 
     @DeleteMapping("/batch")
     public Result<Void> batchDelete(@Valid @RequestBody DeviceBatchDeleteRequest request) {
+        if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权批量删除设备");
         deviceService.removeByIds(request.getIds());
         return Result.success();
     }
