@@ -18,6 +18,9 @@ public class SysUser {
     private String email;
     private String avatar;
     private String role;
+    private String residentBuilding;
+    private String residentFloor;
+    private String residentRoom;
     private String status;
     private String userExt;
     private String lastLoginIp;

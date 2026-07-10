@@ -7,6 +7,7 @@ import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.SensorData;
 import com.smartsmoke.service.SensorDataService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 
@@ -28,8 +29,8 @@ public class DataController {
     @GetMapping("/history/{deviceId}")
     public Result<PageResult<SensorData>> history(
             @PathVariable Long deviceId,
-            @RequestParam LocalDateTime start,
-            @RequestParam LocalDateTime end,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "500") int pageSize,
             @RequestParam(required = false) String interval) {

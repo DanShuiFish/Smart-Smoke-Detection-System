@@ -15,7 +15,27 @@
       "WebFetch(domain:central.sonatype.com)",
       "WebFetch(domain:doc.smartjavaai.cn)",
       "WebFetch(domain:cloud.tencent.com.cn)",
-      "PowerShell(pip *)"
+      "PowerShell(pip *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git diff *)",
+      "PowerShell(Get-Content \"E:\\\\java Pro\\\\Pro_smoke\\\\src\\\\main\\\\resources\\\\static\\\\fe2\\\\dashboard-enhanced.js\" -TotalCount 19 | ForEach-Object { $line = $_; $bytes = [System.Text.Encoding]::UTF8.GetBytes\\($line\\); $hex = \\($bytes | ForEach-Object { \"0x{0:X2}\" -f $_ }\\) -join \" \"; Write-Output \"$hex\"; Write-Output $line })",
+      "Skill(code-review)",
+      "Bash(node -c src/main/resources/static/fe2/dashboard-enhanced.js)",
+      "Bash(node -c src/main/resources/static/user/user.js)",
+      "Bash(mysql *)",
+      "Bash(docker exec *)",
+      "Bash(curl -sL --connect-timeout 10 \"https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js\" -o \"E:/java Pro/Pro_smoke/src/main/resources/static/fe2/lib/echarts.min.js\")",
+      "Bash(cp -f \"E:/java Pro/Pro_smoke/src/main/resources/static/fe2/dashboard-enhanced.html\" \"E:/java Pro/Pro_smoke/target/classes/static/fe2/dashboard-enhanced.html\")",
+      "Bash(cp -f \"E:/java Pro/Pro_smoke/src/main/resources/static/fe2/dashboard-enhanced.js\" \"E:/java Pro/Pro_smoke/target/classes/static/fe2/dashboard-enhanced.js\")",
+      "Bash(cp -f \"E:/java Pro/Pro_smoke/src/main/resources/static/user/user.js\" \"E:/java Pro/Pro_smoke/target/classes/static/user/user.js\")",
+      "Bash(cp -f \"E:/java Pro/Pro_smoke/src/main/resources/static/user/index.html\" \"E:/java Pro/Pro_smoke/target/classes/static/user/index.html\")",
+      "Bash(cp -f \"E:/java Pro/Pro_smoke/src/main/resources/static/index.html\" \"E:/java Pro/Pro_smoke/target/classes/static/index.html\")",
+      "Bash(cp -f \"E:/java Pro/Pro_smoke/src/main/resources/static/login.js\" \"E:/java Pro/Pro_smoke/target/classes/static/login.js\")",
+      "Bash(grep \"function \\\\$\\\\|const \\\\$\\\\|var \\\\$\" \"E:/java Pro/Pro_smoke/src/main/resources/static/user/user.js\")",
+      "Bash(grep -A5 \"function.*\\\\$\" src/main/resources/static/user/user.js)",
+      "Bash(grep *)",
+      "Bash(awk '{print $2}')"
     ]
   }
 }

@@ -93,11 +93,11 @@ src/main/java/com/smartsmoke/
 | SystemConfigController | 列表, 更新 | ✅ |
 | HealthController | 健康检查 | ✅ |
 | DataController | latest, history | ⚠️ history缺分页/interval |
-| DeviceBindingController | 我的设备 (3个) | ⚠️ 缺管理端接口 |
-| BroadcastController | 创建, 列表 | ⚠️ 缺MqttPublisher集成/分页/详情 |
+| DeviceBindingController | 我的设备 + 管理端CRUD | ✅ |
+| BroadcastController | 创建, 列表, 详情 | ✅ |
 | ConversationController | 提问, 列表 | ⚠️ AI为stub, 缺评分/分页 |
-| AiReviewController | 不存在 | ❌ |
-| OperationLogController | 不存在 | ❌ |
+| AiReviewController | 列表(分页+过滤), 详情, 人工确认 | ✅ |
+| OperationLogController | 分页查询(多条件过滤) | ✅ |
 
 ## Entity 清单（12个）
 
@@ -112,19 +112,34 @@ SysUser, SmokeDevice, SensorData, AlarmRecord, AiReviewRecord, BroadcastRecord, 
 ## 当前待完成（按优先级）
 
 ### 高优先级
-1. **新建 AiReviewController** — 3个端点：列表(分页+过滤)、详情、人工确认（`PUT /{id}/manual-confirm`）
-2. **新建 OperationLogController** — 1个端点：分页查询（多条件过滤）
-3. **补齐 DeviceBindingController** — 管理端：全量分页查询、新增绑定、解绑
+1. ~~新建 AiReviewController~~ ✅ (2026-07-09)
+2. ~~新建 OperationLogController~~ ✅ (2026-07-09)
+3. ~~补齐 DeviceBindingController 管理端接口~~ ✅ (已实现, 仅文档滞后)
 
 ### 中优先级
-4. BroadcastController 集成 MqttPublisher + 补详情/分页
+4. ~~BroadcastController~~ ✅ (MqttPublisher已集成, 分页/详情已实现)
 5. DataController.history 加分页 + interval 聚合
 6. ConversationController 补评分端点 + 分页过滤 + MaxKB 接入
+7. **FIREFIGHTER 角色** — SysUser 支持但 Controller 未实现独立逻辑
 
 ### 低优先级
-7. SaToken 鉴权恢复（当前被注释）
-8. WebSocket 加 30 秒心跳 + type 字段
-9. 操作日志 AOP 切面自动记录
+8. SaToken 鉴权恢复（当前被注释）
+9. WebSocket 加 30 秒心跳 + type 字段
+10. 操作日志 AOP 切面自动记录
+
+### 已完成的改进 (2026-07-09)
+- ✅ 角色体系简化: ADMIN/RESIDENT 两种角色，地址自动匹配设备
+- ✅ PermissionService 提取 + 地址匹配逻辑
+- ✅ DashboardController 按角色过滤 stats/realtime
+- ✅ DataController @DateTimeFormat 注解
+- ✅ AlarmController 状态流转模板方法 + @Transactional
+- ✅ WebSocket broadcastByDevice 集成
+- ✅ GlobalExceptionHandler 细化（BusinessException + 5 类异常）
+- ✅ application.yml 死配置清理
+- ✅ JacksonConfig 全局 LocalDateTime 序列化
+- ✅ 前端 AI 复核完整页面
+- ✅ OperationLogController 新建
+- ✅ DeviceBindingController 管理端接口确认（已有 list/create/unbind）
 
 ## 重要参考文档
 

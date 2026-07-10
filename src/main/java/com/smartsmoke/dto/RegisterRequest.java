@@ -9,4 +9,7 @@ public class RegisterRequest {
     private String realName;
     private String phone;
     private String role;
+    private String residentBuilding;
+    private String residentFloor;
+    private String residentRoom;
 }

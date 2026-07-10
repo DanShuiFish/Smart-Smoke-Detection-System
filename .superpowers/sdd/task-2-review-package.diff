@@ -1,0 +1,111 @@
+diff --git a/src/main/resources/static/fe2/dashboard-enhanced.js b/src/main/resources/static/fe2/dashboard-enhanced.js
+index 10a4a04..40ee01a 100644
+--- a/src/main/resources/static/fe2/dashboard-enhanced.js
++++ b/src/main/resources/static/fe2/dashboard-enhanced.js
+@@ -8,20 +8,21 @@ const state = {
+   deviceStatusQuickFilter: "",
+   deviceFilterAvgBattery: false,
+   deviceStats: { total: 0, online: 0, offline: 0, error: 0, inactive: 0, avgBattery: 0 },
+   deviceFormMode: "create",
+   editingDeviceId: "",
+   screen: { stats: {}, realtime: {}, alarmSample: [], deviceTrend: [] },
+   analysis: { alarmTrend: [], alarmSample: [], deviceStats: [] },
+   devicesPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
+   alarmsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
+   bindingsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
++  reviewsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
+   currentBindDeviceId: "",
+ };
+ const DEVICE_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]{3,31}$/;
+ 
+ const charts = {
+   screenRealtime: null,
+   screenDeviceStatus: null,
+   screenAlarmType: null,
+   screenHeatmap: null,
+   screenTrend: null,
+@@ -166,20 +167,45 @@ function alarmStatusClass(status) {
+   if (s === "RESOLVED" || s === "ARCHIVED" || s === "CLOSED") return "ok";
+   if (s === "CONFIRMED") return "info";
+   return "info";
+ }
+ function alarmLevelClass(level) {
+   const s = String(level || "").toUpperCase();
+   if (s === "HIGH" || s === "CRITICAL") return "danger";
+   if (s === "MEDIUM") return "warn";
+   return "info";
+ }
++function formatReviewResult(result) {
++  var s = String(result || "").toUpperCase();
++  if (s === "FIRE_CONFIRMED") return "AI确认火情";
++  if (s === "NO_FIRE") return "AI排除火情";
++  if (s === "UNCERTAIN") return "不确定";
++  return safeText(result, "未复核");
++}
++function formatManualReview(isManual, manualResult) {
++  if (Number(isManual) === 1) {
++    var r = String(manualResult || "").toUpperCase();
++    return r === "CONFIRMED" ? "人工确认" : (r === "DISMISSED" ? "人工驳回" : "已复核");
++  }
++  return "待复核";
++}
++function reviewResultClass(result) {
++  var s = String(result || "").toUpperCase();
++  if (s === "FIRE_CONFIRMED") return "danger";
++  if (s === "NO_FIRE") return "ok";
++  return "warn";
++}
++function manualReviewClass(isManual, manualResult) {
++  if (Number(isManual) !== 1) return "warn";
++  var r = String(manualResult || "").toUpperCase();
++  return r === "CONFIRMED" ? "ok" : "info";
++}
+ function deviceStatusClass(status) {
+   const s = String(status || "").toUpperCase();
+   if (s === "ONLINE") return "ok";
+   if (s === "OFFLINE") return "warn";
+   if (s === "ERROR") return "danger";
+   return "info";
+ }
+ function renderEmptyState(node, title, desc) {
+   if (!node) return;
+   node.innerHTML = '<div class="empty-state"><strong>' + escapeHtml(title) + '</strong><p>' + escapeHtml(desc) + '</p></div>';
+@@ -1290,20 +1316,38 @@ async function loadAlarmRows(page = state.alarmsPage.page || 1) {
+   if (status) query += "&status=" + encodeURIComponent(status);
+   try {
+     const data = await apiRequest("/alarms" + query);
+     state.alarmsPage = normalizePageResult(data, page, state.alarmsPage.pageSize);
+     renderAlarmTable();
+     renderAlarmPagination();
+   } catch (error) {
+     showGlobalAlert("告警数据加载失败: " + error.message);
+   }
+ }
++async function loadReviewRows(page) {
++  if (!page) page = state.reviewsPage.page || 1;
++  var alarmId = safeText(el("reviewFilterAlarmId") && el("reviewFilterAlarmId").value, "").trim();
++  var deviceId = safeText(el("reviewFilterDeviceId") && el("reviewFilterDeviceId").value, "").trim();
++  var result = safeText(el("reviewFilterResult") && el("reviewFilterResult").value, "").trim();
++  var query = "?page=" + page + "&pageSize=" + state.reviewsPage.pageSize;
++  if (alarmId) query += "&alarmId=" + encodeURIComponent(alarmId);
++  if (deviceId) query += "&deviceId=" + encodeURIComponent(deviceId);
++  if (result) query += "&result=" + encodeURIComponent(result);
++  try {
++    var data = await apiRequest("/ai-reviews" + query);
++    state.reviewsPage = normalizePageResult(data, page, state.reviewsPage.pageSize);
++    renderReviewTable();
++    renderReviewPagination();
++  } catch (error) {
++    showGlobalAlert("AI复核记录加载失败: " + error.message);
++  }
++}
+ function connectWebSocket() {
+   try {
+     if (!location.host) { setChip("wsStatus", "WebSocket: 已断开", "warn"); return; }
+     const token = getToken();
+     const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/alarm" + (token ? "?token=" + encodeURIComponent(token) : "");
+     const socket = new WebSocket(wsUrl);
+     socket.onopen = () => setChip("wsStatus", "WebSocket: 已连接", "ok");
+     socket.onclose = () => setChip("wsStatus", "WebSocket: 已断开", "warn");
+     socket.onmessage = (event) => {
+       try {

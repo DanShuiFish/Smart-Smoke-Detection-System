@@ -10,6 +10,7 @@
   // ===== 全局状态 =====
   let currentUser = null;
   let myDeviceIds = [];
+  let myDevices = [];
   let currentView = 'dashboard';
   let refreshTimer = null;
   let chatSessionId = null;
@@ -154,42 +155,89 @@
     return '等待更多数据';
   }
 
+  // 告警音效（懒初始化）
+  var _alarmAudioCtx = null;
+  function _ensureAudioCtx() { if (!_alarmAudioCtx) { _alarmAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } if (_alarmAudioCtx.state === 'suspended') { _alarmAudioCtx.resume(); } return _alarmAudioCtx; }
+  document.addEventListener('click', function() { _ensureAudioCtx(); }, { once: false });
+  function playAlarmSound() { try { var ctx = _ensureAudioCtx(); var t = ctx.currentTime; var o1 = ctx.createOscillator(); var g1 = ctx.createGain(); o1.connect(g1); g1.connect(ctx.destination); o1.type = 'sawtooth'; o1.frequency.setValueAtTime(1000, t); o1.frequency.setValueAtTime(800, t+0.15); o1.frequency.setValueAtTime(1000, t+0.3); g1.gain.setValueAtTime(0.25, t); g1.gain.exponentialRampToValueAtTime(0.01, t+0.35); o1.start(t); o1.stop(t+0.35); var o2 = ctx.createOscillator(); var g2 = ctx.createGain(); o2.connect(g2); g2.connect(ctx.destination); o2.type = 'square'; o2.frequency.setValueAtTime(500, t+0.35); o2.frequency.setValueAtTime(400, t+0.65); g2.gain.setValueAtTime(0.01, t+0.35); g2.gain.linearRampToValueAtTime(0.2, t+0.4); g2.gain.exponentialRampToValueAtTime(0.01, t+0.9); o2.start(t+0.35); o2.stop(t+0.9); } catch(e) {} }
+
+  var _lastAlarmKeys = {};
+  // 持久化告警卡片
   function showRealtimeAlarmBanner(payload) {
-    const node = $('#globalAlert');
-    if (!node) return;
-    const levelLabel = { LOW: '低', MEDIUM: '中', HIGH: '高', CRITICAL: '紧急' }[String(payload.alarmLevel || '').toUpperCase()] || '--';
-    const levelClass = alarmLevelClass(payload.alarmLevel);
-    const title = levelLabel + '级' + alarmTypeLabel(payload.alarmType || payload.alarmTypeText);
-    const deviceName = payload.deviceName || payload.deviceId || '未知设备';
-    const location = buildAlarmLocation(payload);
-    const metric = formatAlarmMetric(payload);
-    const summary = payload.message || metric;
-    node.innerHTML = '<div class="alert-banner ' + levelClass + '">' +
-      '<div class="alert-banner-title">' + escapeHtml(title) + ' | ' + escapeHtml(deviceName) + '</div>' +
-      '<div class="alert-banner-meta">' + (location ? ('位置: ' + escapeHtml(location) + ' · ') : '') + '状态: ' + escapeHtml(formatAlarmStatusText(payload.alarmStatus)) + ' · ' + escapeHtml(metric) + '</div>' +
-      '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
-    node.classList.remove('hidden');
-    clearTimeout(showRealtimeAlarmBanner.timer);
-    showRealtimeAlarmBanner.timer = setTimeout(() => node.classList.add('hidden'), 10000);
+    var key = (payload.deviceId || '') + '|' + (payload.alarmType || '') + '|' + (payload.alarmStatus || '');
+    var now = Date.now();
+    if (_lastAlarmKeys[key] && (now - _lastAlarmKeys[key]) < 3000) return;
+    _lastAlarmKeys[key] = now;
+    var stack = $('#alarmBannerStack');
+    if (!stack) return;
+    var levelClass = (payload.alarmLevel || '').toUpperCase() === 'HIGH' || (payload.alarmLevel || '').toUpperCase() === 'CRITICAL' ? 'danger' : 'warn';
+    var levelLabel = { LOW: '低', MEDIUM: '中', HIGH: '高', CRITICAL: '紧急' }[String(payload.alarmLevel || '').toUpperCase()] || '--';
+    var title = levelLabel + '级' + alarmTypeLabel(payload.alarmType || payload.alarmTypeText);
+    var deviceName = payload.deviceName || payload.deviceId || '未知设备';
+    var location = buildAlarmLocation(payload);
+    var metric = formatAlarmMetric(payload);
+    var borderColor = levelClass === 'danger' ? '#ef4444' : '#f59e0b';
+    var id = 'rb-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+    var card = document.createElement('div');
+    card.className = 'alarm-card';
+    card.id = id;
+    card.style.cssText = 'background:#fff;border-radius:10px;padding:12px 16px;border-left:4px solid ' + borderColor + ';';
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;"><div><strong style="font-size:13px;color:#1e293b;">' + escapeHtml(title) + '</strong><span style="margin-left:8px;font-size:11px;color:#64748b;">' + escapeHtml(deviceName) + '</span></div><span style="cursor:pointer;color:#94a3b8;font-size:16px;" onclick="var c=document.getElementById(\'' + id + '\');if(c)c.remove();">×</span></div><div style="font-size:11px;color:#94a3b8;margin-top:3px;">' + (location ? escapeHtml(location) + ' · ' : '') + escapeHtml(formatAlarmStatusText(payload.alarmStatus)) + ' · ' + escapeHtml(metric) + '</div>';
+    stack.appendChild(card);
+    setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 30000);
+    while (stack.children.length > 5) { stack.removeChild(stack.firstChild); }
+    return;
+  }
+  // 旧代码已移到上方持久化卡片实现
+
+  function showDeviceOnlineBanner(payload) {
+    var stack = $('#alarmBannerStack');
+    if (!stack) return;
+    var dName = payload.deviceName || payload.deviceId || '未知设备';
+    var addr = buildAlarmLocation(payload);
+    var id = 'on-' + Date.now();
+    var card = document.createElement('div');
+    card.id = id;
+    card.style.cssText = 'background:#f0fdf4;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:10px 14px;border-left:4px solid #22c55e;font-size:12px;';
+    card.innerHTML = '<strong style="color:#166534;">📡 设备恢复在线</strong> ' + escapeHtml(dName) + (addr ? ' · ' + escapeHtml(addr) : '') + ' <span style="float:right;cursor:pointer;color:#94a3b8;" onclick="this.parentElement.remove()">×</span>';
+    stack.appendChild(card);
+    setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 10000);
   }
 
+  var _lastBcKey = '', _lastBcTime = 0;
+  function showBroadcastBanner(payload) {
+    var key = (payload.area || '') + (payload.message || '').substring(0, 30);
+    var now = Date.now();
+    if (key === _lastBcKey && (now - _lastBcTime) < 5000) return;
+    _lastBcKey = key; _lastBcTime = now;
+    var stack = $('#alarmBannerStack');
+    if (!stack) return;
+    var id = 'bc-' + Date.now();
+    var card = document.createElement('div');
+    card.className = 'broadcast-card';
+    card.id = id;
+    card.style.cssText = 'background:#fef2f2;border-radius:10px;padding:14px 16px;border-left:5px solid #dc2626;';
+    var area = payload.area || payload.broadcastArea || '当前区域';
+    var msg = payload.message || payload.broadcastContent || '';
+    card.innerHTML = '<div style="display:flex;justify-content:space-between;"><div style="flex:1;"><div style="font-size:15px;font-weight:700;color:#dc2626;">🚨 紧急广播 · ' + escapeHtml(area) + '</div><div style="font-size:13px;color:#1e293b;margin-top:6px;line-height:1.5;">' + escapeHtml(msg) + '</div></div><span style="cursor:pointer;color:#94a3b8;font-size:18px;padding-left:8px;" onclick="this.parentElement.parentElement.remove()">×</span></div>';
+    stack.appendChild(card);
+    setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 120000);
+  }
 
-function showBroadcastBanner(payload) {
-  const node = $('#globalAlert');
-  if (!node) return;
-  const area = payload.area || payload.broadcastArea || '当前区域';
-  const mode = payload.triggerMode === 'AUTO' ? '自动' : (payload.triggerMode === 'MANUAL' ? '手动' : '联动');
-  const typeLabel = payload.broadcastType === 'EMERGENCY' ? '紧急广播' : (payload.broadcastType === 'NOTIFICATION' ? '通知' : '广播');
-  const summary = payload.message || payload.broadcastContent || '';
-  const timeStr = payload.time ? payload.time.substring(11, 19) : '';
-  node.innerHTML = '<div class="alert-banner danger">' +
-    '<div class="alert-banner-title">[广播] ' + escapeHtml(typeLabel) + ' | ' + escapeHtml(area) + '</div>' +
-    '<div class="alert-banner-meta">触发方式: ' + escapeHtml(mode) + ' · 时间: ' + escapeHtml(timeStr) + '</div>' +
-    '<div class="alert-banner-desc">' + escapeHtml(summary) + '</div></div>';
-  node.classList.remove('hidden');
-  clearTimeout(showBroadcastBanner.timer);
-  showBroadcastBanner.timer = setTimeout(() => node.classList.add('hidden'), 15000);
-}
+  function handleAlarmUpdate(payload) {
+    var statusText = formatAlarmStatusText(payload.alarmStatus);
+    var stack = $('#alarmBannerStack');
+    if (!stack) return;
+    var id = 'upd-' + Date.now();
+    var card = document.createElement('div');
+    card.id = id;
+    card.style.cssText = 'background:#f0fdf4;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:10px 14px;border-left:4px solid #22c55e;font-size:12px;';
+    card.innerHTML = '<strong>告警状态更新</strong> #' + payload.alarmId + ' → <span style="color:#166534;">' + escapeHtml(statusText) + '</span> <span style="float:right;cursor:pointer;color:#94a3b8;" onclick="this.parentElement.remove()">×</span>';
+    stack.appendChild(card);
+    setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 10000);
+    renderAlarms();
+    renderDashboard();
+  }
 
 function connectWebSocket() {
   try {
@@ -206,7 +254,9 @@ function connectWebSocket() {
       try {
         const payload = JSON.parse(event.data);
         if (payload.kind === 'broadcast') { showBroadcastBanner(payload); }
-        else { showRealtimeAlarmBanner(payload); }
+        else if (payload.kind === 'alarm_update') { handleAlarmUpdate(payload); }
+        else if (payload.kind === 'device_online') { showDeviceOnlineBanner(payload); }
+        else { showRealtimeAlarmBanner(payload); refreshDashboardImmediately(); }
       } catch (e) {
         console.error('WebSocket message error:', e);
       }
@@ -217,12 +267,14 @@ function connectWebSocket() {
   }
 }
 
-  // ===== 获取我的设备 ID =====
+  // ===== 获取我的设备 ID（地址自动匹配） =====
   async function loadMyDeviceIds() {
     try {
-      const resp = await apiGet('/bindings/my-device-ids');
-      if (resp.code === 200) {
-        myDeviceIds = resp.data || [];
+      const resp = await apiGet('/devices?page=1&pageSize=100');
+      if (resp.code === 200 && resp.data) {
+        const records = resp.data.records || [];
+        myDeviceIds = records.map(function(d) { return d.id; });
+        myDevices = records;
       }
     } catch (err) {
       console.error('获取设备ID失败:', err);
@@ -263,7 +315,7 @@ function connectWebSocket() {
     // 更新标题
     const titles = {
       dashboard: ['首页 / 仪表盘', '我的设备概览与实时告警'],
-      devices: ['我的设备', '查看已绑定设备的实时状态和历史趋势'],
+      devices: ['我的设备', '查看我地址下的设备实时状态'],
       alarms: ['告警记录', '查看关联设备的告警历史'],
       ai: ['AI 智能问答', '消防知识智能对话'],
       profile: ['个人中心', '管理个人信息与密码'],
@@ -287,8 +339,6 @@ function connectWebSocket() {
 
     // KPI 统计
     try {
-      const devResp = await apiGet('/bindings/my-devices?page=1&size=100');
-
       // 用我的设备 ID 过滤告警
       let alarmUrl = '/alarms?page=1&pageSize=100';
       if (myDeviceIds.length > 0) {
@@ -296,13 +346,9 @@ function connectWebSocket() {
       }
       const alarmResp = await apiGet(alarmUrl);
 
-      let totalDevices = 0, onlineDevices = 0, todayAlarms = 0, pendingAlarms = 0;
-
-      if (devResp.code === 200 && devResp.data) {
-        const records = devResp.data.records || [];
-        totalDevices = devResp.data.total || records.length;
-        onlineDevices = records.filter(d => d.status === 'ONLINE').length;
-      }
+      let totalDevices = myDevices.length, onlineDevices = 0, offlineDevices = 0, todayAlarms = 0, pendingAlarms = 0;
+      onlineDevices = myDevices.filter(function(d) { return d.status === 'ONLINE'; }).length;
+      offlineDevices = myDevices.filter(function(d) { return d.status === 'OFFLINE'; }).length;
 
       if (alarmResp.code === 200 && alarmResp.data) {
         const records = alarmResp.data.records || [];
@@ -313,6 +359,7 @@ function connectWebSocket() {
 
       $('#kpiTotalDevices').textContent = totalDevices;
       $('#kpiOnlineDevices').textContent = onlineDevices;
+      $('#kpiOfflineDevices').textContent = offlineDevices;
       $('#kpiTodayAlarms').textContent = todayAlarms;
       $('#kpiPendingAlarms').textContent = pendingAlarms;
       $('#residentDeviceSummary').textContent = '我的设备: ' + totalDevices;
@@ -321,16 +368,16 @@ function connectWebSocket() {
       // 填充设备选择器
       const deviceSelect = $('#dashDeviceSelect');
       deviceSelect.innerHTML = '<option value="">选择设备</option>';
-      const devRecords = devResp.data?.records || [];
-      const deviceMap = new Map(devRecords.map(d => [String(d.id), d]));
-      devRecords.forEach(d => {
+      const devRecords = myDevices || [];
+      const deviceMap = new Map(devRecords.map(function(d) { return [String(d.id), d]; }));
+      devRecords.forEach(function(d) {
         deviceSelect.innerHTML += `<option value="${d.id}">${d.deviceName || d.deviceId}</option>`;
       });
 
       const trendSelect = $('#trendDeviceSelect');
       trendSelect.innerHTML = '<option value="">选择设备查看趋势</option>';
-      devRecords.forEach(d => {
-        trendSelect.innerHTML += `<option value="${d.id}">${d.deviceName || d.deviceId}</option>`;
+      devRecords.forEach(function(d) {
+        trendSelect.innerHTML += '<option value="' + d.id + '">' + (d.deviceName || d.deviceId) + '</option>';
       });
 
       // 默认选中第一台设备
@@ -412,7 +459,11 @@ function connectWebSocket() {
   // ===== 我的设备 =====
   async function renderDevices(page = 1) {
     try {
-      const resp = await apiGet(`/bindings/my-devices?page=${page}&size=20`);
+      var statusFilter = $('#residentDeviceStatusFilter');
+      var status = statusFilter ? statusFilter.value : '';
+      var url = '/devices?page=' + page + '&pageSize=20';
+      if (status) url += '&status=' + encodeURIComponent(status);
+      const resp = await apiGet(url);
       if (resp.code !== 200) return;
 
       const pageData = resp.data;
@@ -421,7 +472,7 @@ function connectWebSocket() {
       // 渲染表格
       const tbody = $('#deviceTableBody');
       if (devices.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted);">暂无绑定设备</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted);">暂无设备</td></tr>`;
       } else {
         tbody.innerHTML = devices.map(d => `
           <tr>
@@ -548,7 +599,7 @@ function connectWebSocket() {
         url += '&deviceIds=' + myDeviceIds.join(',');
       } else {
         // 没有设备则显示空
-        $('#alarmTableBody').innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--muted);">您没有绑定任何设备</td></tr>`;
+        $('#alarmTableBody').innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--muted);">暂无设备数据</td></tr>`;
         return;
       }
 
@@ -583,6 +634,11 @@ function connectWebSocket() {
 
   // 查询按钮
   $('#btnLoadAlarms').addEventListener('click', () => renderAlarms(1));
+  // 设备刷新 + 状态筛选
+  var btnRefreshDev = $('#btnRefreshDevices');
+  if (btnRefreshDev) btnRefreshDev.addEventListener('click', function() { renderDevices(1); });
+  var statusFilt = $('#residentDeviceStatusFilter');
+  if (statusFilt) statusFilt.addEventListener('change', function() { renderDevices(1); });
 
   window.showAlarmDetail = async function (id) {
     try {
@@ -653,9 +709,15 @@ function connectWebSocket() {
       chatSessionId = 'user-' + (currentUser?.id || '0') + '-' + Date.now();
       $('#chatSessionId').textContent = chatSessionId;
       $('#chatMsgCount').textContent = '0';
+      loadConversationHistory();
     });
 
+    // 新建对话
+    var btnNew = $('#btnNewConversation');
+    if (btnNew) btnNew.addEventListener('click', startNewConversation);
+
     $('#chatSessionId').textContent = chatSessionId;
+    loadConversationHistory();
   }
 
   async function sendMessage(text) {
@@ -750,6 +812,7 @@ function connectWebSocket() {
     }
 
     chatLog.scrollTop = chatLog.scrollHeight;
+    loadConversationHistory();
   }
 
   async function rateConversation(convId, rating) {
@@ -758,6 +821,79 @@ function connectWebSocket() {
     } catch (err) {
       console.error('评分失败:', err);
     }
+  }
+
+  // ===== AI 对话历史管理 =====
+
+  async function loadConversationHistory() {
+    var container = $('#chatHistoryList');
+    if (!container) return;
+    try {
+      var data = await apiGet('/conversations?page=1&pageSize=20');
+      var records = (data && data.records) || [];
+      if (!records.length) {
+        container.innerHTML = '<p style="color:var(--muted);font-size:12px;text-align:center;">暂无历史对话</p>';
+        return;
+      }
+      var sessionMap = {};
+      records.forEach(function(item) {
+        if (!sessionMap[item.sessionId]) {
+          sessionMap[item.sessionId] = { sessionId: item.sessionId, firstQuestion: item.question ? item.question.substring(0, 25) : '无内容', lastTime: item.createTime, count: 1 };
+        } else { sessionMap[item.sessionId].count++; sessionMap[item.sessionId].lastTime = item.createTime; }
+      });
+      var sessions = Object.values(sessionMap).sort(function(a, b) { return (b.lastTime || '').localeCompare(a.lastTime || ''); });
+      container.innerHTML = sessions.map(function(s) {
+        var isActive = s.sessionId === chatSessionId;
+        return '<div class="conv-item" data-session="' + s.sessionId + '" style="padding:6px 8px;border-bottom:1px solid #e2e8f0;cursor:pointer;' + (isActive ? 'background:#eff6ff;' : '') + '">' +
+          '<div style="font-weight:600;font-size:12px;color:' + (isActive ? '#2563eb' : '#334155') + ';">' + escapeHtml(s.firstQuestion) + (s.count > 1 ? ' (' + s.count + '轮)' : '') + '</div>' +
+          '<div style="font-size:10px;color:#94a3b8;">' + escapeHtml(s.lastTime || '') + (isActive ? ' · 当前' : '') + '</div></div>';
+      }).join('');
+      container.querySelectorAll('.conv-item').forEach(function(el) {
+        el.addEventListener('click', function() { resumeConversation(this.dataset.session); });
+      });
+    } catch (err) { container.innerHTML = '<p style="color:var(--danger);font-size:12px;text-align:center;">加载失败</p>'; }
+  }
+
+  async function startNewConversation() {
+    chatSessionId = 'user-' + (currentUser?.id || '0') + '-' + Date.now();
+    var chatLog = $('#chatLog');
+    var chatEmpty = $('#chatEmpty');
+    chatLog.innerHTML = '';
+    chatLog.appendChild(chatEmpty);
+    chatEmpty.classList.remove('hidden');
+    $('#chatSessionId').textContent = chatSessionId;
+    $('#chatMsgCount').textContent = '0';
+    loadConversationHistory();
+  }
+
+  async function resumeConversation(sessionId) {
+    chatSessionId = sessionId;
+    var chatLog = $('#chatLog');
+    var chatEmpty = $('#chatEmpty');
+    chatLog.innerHTML = '';
+    chatEmpty.classList.add('hidden');
+    try {
+      var data = await apiGet('/conversations?sessionId=' + encodeURIComponent(sessionId) + '&page=1&pageSize=200');
+      var records = (data && data.records) || [];
+      records.sort(function(a, b) { return (a.createTime || '').localeCompare(b.createTime || ''); });
+      records.forEach(function(item) {
+        var now = new Date(); var timeStr = formatTime(now);
+        if (item.question) {
+          var um = document.createElement('div'); um.className = 'msg-row user';
+          um.innerHTML = '<div class="msg-avatar user-av">' + (currentUser?.realName || '我').charAt(0) + '</div><div class="msg-body"><div class="msg-meta"><span class="msg-sender">我</span><span class="msg-time">' + timeStr + '</span></div><div class="msg-bubble">' + escapeHtml(item.question) + '</div></div>';
+          chatLog.appendChild(um);
+        }
+        if (item.answer) {
+          var am = document.createElement('div'); am.className = 'msg-row ai';
+          am.innerHTML = '<div class="msg-avatar ai-av">AI</div><div class="msg-body"><div class="msg-meta"><span class="msg-sender">智能助手</span><span class="msg-time">' + timeStr + '</span></div><div class="msg-bubble">' + escapeHtml(item.answer) + '</div></div>';
+          chatLog.appendChild(am);
+        }
+      });
+      $('#chatSessionId').textContent = sessionId;
+      $('#chatMsgCount').textContent = String(records.length);
+    } catch (err) { chatLog.innerHTML = '<p style="color:var(--danger);">加载失败: ' + err.message + '</p>'; }
+    chatLog.scrollTop = chatLog.scrollHeight;
+    loadConversationHistory();
   }
 
   // ===== 个人中心 =====
@@ -893,7 +1029,7 @@ function connectWebSocket() {
     refreshDashboardImmediately();
     refreshTimer = setInterval(() => {
       refreshDashboardImmediately();
-    }, 20000); // 每20秒刷新
+    }, 10000); // 每10秒刷新
 
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) {
@@ -961,7 +1097,7 @@ function connectWebSocket() {
   }
 
   function alarmTypeLabel(type) {
-    const map = { 'SMOKE_OVERFLOW': '烟雾超标', 'DEVICE_OFFLINE': '设备离线', 'DEVICE_ERROR': '设备故障' };
+    const map = { 'SMOKE_OVERFLOW': '烟雾超标', 'TEMP_OVERFLOW': '温度异常', 'FIRE_RISK': '复合火情', 'DEVICE_OFFLINE': '设备离线', 'DEVICE_ERROR': '设备故障' };
     return map[type] || type || '--';
   }
 

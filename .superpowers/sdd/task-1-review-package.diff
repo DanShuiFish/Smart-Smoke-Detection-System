@@ -1,0 +1,91 @@
+diff --git a/src/main/resources/static/fe2/dashboard-enhanced.html b/src/main/resources/static/fe2/dashboard-enhanced.html
+index 25984d9..b578040 100644
+--- a/src/main/resources/static/fe2/dashboard-enhanced.html
++++ b/src/main/resources/static/fe2/dashboard-enhanced.html
+@@ -16,20 +16,21 @@
+             <strong>智慧烟感</strong>
+             <span>预警系统</span>
+           </div>
+         </div>
+         <nav class="sidebar-nav" aria-label="主导航">
+           <button class="nav-btn active" data-view="screen" title="数据大屏"><span class="nav-icon">总</span><span class="nav-text">数据大屏</span></button>
+           <button class="nav-btn" data-view="devices" title="设备管理"><span class="nav-icon">设</span><span class="nav-text">设备管理</span></button>
+           <button class="nav-btn" data-view="analysis" title="数据分析"><span class="nav-icon">分</span><span class="nav-text">数据分析</span></button>
+           <button class="nav-btn" data-view="ai" title="AI 智能问答"><span class="nav-icon">智</span><span class="nav-text">AI 智能问答</span></button>
+           <button class="nav-btn" data-view="alarms" title="告警日志"><span class="nav-icon">警</span><span class="nav-text">告警日志</span></button>
++          <button class="nav-btn" data-view="reviews" title="AI视觉复核"><span class="nav-icon">视</span><span class="nav-text">AI视觉复核</span></button>
+         </nav>
+       </aside>
+ 
+       <main class="workspace">
+         <header class="topbar">
+           <div class="title-block">
+             <p class="page-kicker">消防 PC 管理端 <span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(37,99,235,0.12);color:#1d4ed8;border:1px solid rgba(37,99,235,0.3);margin-left:6px;vertical-align:middle;">管理端-大屏</span></p>
+             <h2 id="viewTitle">首页 / 数据大屏</h2>
+             <p id="viewSubTitle">设备态势、实时监测、告警联动</p>
+           </div>
+@@ -170,20 +171,64 @@
+                 <select id="alarmStatusFilter"><option value="">全部状态</option><option value="PENDING">待处理</option><option value="CONFIRMING">确认中</option><option value="CONFIRMED">已确认</option><option value="RESOLVED">已处置</option><option value="ARCHIVED">已归档</option><option value="CLOSED">已关闭</option></select>
+                 <button id="btnLoadAlarms" class="btn btn-main">查询</button>
+               </div>
+             </div>
+             <div class="batch-bar"><span id="alarmBatchHint" class="batch-hint">已选择 0 条告警</span><div class="batch-actions"><button id="btnSelectAllAlarms" class="btn">全选</button><button id="btnClearAlarms" class="btn">取消选择</button><button id="btnBatchConfirmAlarms" class="btn btn-main">批量确认</button><button id="btnBatchResolveAlarms" class="btn btn-main">批量处置</button><button id="btnBatchArchiveAlarms" class="btn">批量归档</button><button id="btnBatchCloseAlarms" class="btn danger">批量关闭</button></div></div>
+             <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:54px;"><input type="checkbox" id="alarmSelectAll" /></th><th>时间</th><th>告警类型</th><th>等级</th><th>状态</th><th>设备</th><th>楼栋</th><th>处置操作</th><th>详情</th></tr></thead><tbody id="alarmTableBody"></tbody></table></div>
+             <div id="alarmPagination" class="pagination-bar"></div>
+           </div>
+         </section>
+ 
++        <section id="view-reviews" class="view">
++          <div class="module-heading">
++            <div><h3>AI 视觉复核</h3><p>查看 AI 火焰/烟雾识别结果，支持人工复核确认</p></div>
++            <button id="btnRefreshReviews" class="btn">刷新</button>
++          </div>
++          <div class="panel">
++            <div class="panel-header">
++              <h3>复核记录列表</h3>
++              <div class="toolbar">
++                <input id="reviewFilterAlarmId" type="text" placeholder="告警ID" style="width:100px;" />
++                <input id="reviewFilterDeviceId" type="text" placeholder="设备ID" style="width:100px;" />
++                <select id="reviewFilterResult">
++                  <option value="">全部结果</option>
++                  <option value="FIRE_CONFIRMED">AI确认火情</option>
++                  <option value="NO_FIRE">AI排除火情</option>
++                  <option value="UNCERTAIN">不确定</option>
++                </select>
++                <button id="btnSearchReviews" class="btn btn-main">查询</button>
++                <button id="btnResetReviews" class="btn">重置</button>
++              </div>
++            </div>
++            <div class="table-wrap">
++              <table class="data-table">
++                <thead>
++                  <tr>
++                    <th>ID</th>
++                    <th>告警ID</th>
++                    <th>设备ID</th>
++                    <th>复核类型</th>
++                    <th>AI 判定结果</th>
++                    <th>置信度</th>
++                    <th>人工复核</th>
++                    <th>人工结果</th>
++                    <th>创建时间</th>
++                    <th>操作</th>
++                  </tr>
++                </thead>
++                <tbody id="reviewTableBody"></tbody>
++              </table>
++            </div>
++            <div id="reviewPagination" class="pagination-bar"></div>
++          </div>
++        </section>
++
+         <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle">
+           <div class="modal-mask" data-modal-close="true"></div>
+           <div class="modal-panel">
+             <div class="modal-header"><h3 id="detailModalTitle">详情</h3><button class="btn" type="button" data-modal-close="true">关闭</button></div>
+             <div id="detailModalBody" class="modal-body"></div>
+           </div>
+         </div>
+         <div id="deviceFormModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="deviceFormTitle">
+           <div class="modal-mask" data-device-form-close="true"></div>
+           <div class="modal-panel">
