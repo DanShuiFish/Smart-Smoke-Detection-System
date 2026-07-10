@@ -5,9 +5,9 @@ spring:
   application:
     name: smart-smoke-detection
   datasource:
-    url: ${DB_URL:jdbc:mysql://10.120.67.60:3306/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
+    url: ${DB_URL:jdbc:mysql://localhost/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:root}
+    password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:
@@ -22,7 +22,7 @@ spring:
       static-locations: classpath:/static/,file:./smart-smoke-models/test-images/
   data:
     redis:
-      host: ${REDIS_HOST:10.120.67.60}
+      host: ${REDIS_HOST:192.168.142.128}
       port: 6379
       database: 0
       timeout: 3000ms
@@ -52,7 +52,7 @@ mybatis-plus:
 
 mqtt:
   broker:
-    url: ${MQTT_BROKER_URL:tcp://10.120.67.60:1883}
+    url: ${MQTT_BROKER_URL:tcp://192.168.142.128:1883}
     client-id: ${MQTT_CLIENT_ID:smart-smoke-backend}
     username: ${MQTT_USERNAME:fasong}
     password: ${MQTT_PASSWORD:fasong123}

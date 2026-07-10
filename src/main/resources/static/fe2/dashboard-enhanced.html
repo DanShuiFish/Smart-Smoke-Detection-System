@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -6,6 +6,9 @@
     <title>【管理端-大屏】智慧烟感预警系统</title>
     <link rel="stylesheet" href="./dashboard-enhanced.css" />
     <script src="./lib/echarts.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+    <link rel="stylesheet" href="./building-viz.css" />
     <style>
       @keyframes alarmPulse { 0%,100% { box-shadow: 0 4px 24px rgba(0,0,0,0.12); } 50% { box-shadow: 0 4px 32px rgba(239,68,68,0.5), 0 0 0 4px rgba(239,68,68,0.15); } }
       @keyframes broadcastFlash { 0%,100% { box-shadow: 0 4px 24px rgba(239,68,68,0.3); background: #fef2f2; } 50% { box-shadow: 0 4px 40px rgba(239,68,68,0.7), 0 0 0 6px rgba(239,68,68,0.3); background: #fee2e2; } }
@@ -32,6 +35,7 @@
           <button class="nav-btn" data-view="alarms" title="告警日志"><span class="nav-icon">警</span><span class="nav-text">告警日志</span></button>
           <button class="nav-btn" data-view="reviews" title="AI视觉复核"><span class="nav-icon">视</span><span class="nav-text">AI视觉复核</span></button>
           <button class="nav-btn" data-view="broadcasts" title="广播管理"><span class="nav-icon">播</span><span class="nav-text">广播管理</span></button>
+          <button class="nav-btn" data-view="viz" title="设备可视化"><span class="nav-icon">视</span><span class="nav-text">设备可视化</span></button>
         </nav>
       </aside>
 
@@ -272,6 +276,37 @@
           </div>
         </section>
 
+        <section id="view-viz" class="view">
+          <div class="module-heading">
+            <div><h3>设备可视化</h3><p>楼栋 / 楼层 / 设备三级下钻，实时状态一目了然</p></div>
+            <div class="toolbar">
+              <button id="btnRefreshViz" class="btn">刷新</button>
+              <input id="vizSearchInput" type="text" placeholder="搜索设备名称或编号" style="width:180px;padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" />
+            </div>
+          </div>
+          <div class="viz-layout">
+            <aside class="viz-sidebar" id="vizSidebar">
+              <div class="viz-sidebar-header">楼栋列表</div>
+              <div id="vizBuildingList" class="viz-building-list"></div>
+            </aside>
+            <main class="viz-main">
+              <div class="viz-stats-bar" id="vizStatsBar"></div>
+              <div id="vizFloorTabs" class="viz-floor-tabs"></div>
+              <div id="vizFloorPlan" class="viz-floor-plan"></div>
+              <div id="vizEmpty" class="viz-empty">
+                <strong>请从左侧选择一个楼栋</strong>
+                <p>点击楼栋名称展开楼层设备分布</p>
+              </div>
+            </main>
+            <aside class="viz-detail" id="vizDetail">
+              <div class="viz-detail-header">设备详情</div>
+              <div id="vizDetailBody" class="viz-detail-body">
+                <p class="viz-detail-placeholder">点击设备图标查看详情</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
         <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle">
           <div class="modal-mask" data-modal-close="true"></div>
           <div class="modal-panel">
@@ -358,6 +393,7 @@
       </main>
     </div>
     <script src="./auth-guard.js"></script>
+    <script src="./building-viz.js"></script>
     <script src="./dashboard-enhanced.js"></script>
   </body>
 </html>
