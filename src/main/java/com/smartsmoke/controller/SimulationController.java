@@ -86,6 +86,7 @@ public class SimulationController {
         AlarmWebSocket.broadcastByDevice(dev.getId(), JSONUtil.toJsonStr(wsPayload));
 
         log.info("模拟离线: {}", code);
+        notifyDataChanged(code, "device_offline");
         return Result.success(Map.of("deviceCode", code, "offline", true, "alarmId", record.getId()));
     }
 
@@ -125,6 +126,7 @@ public class SimulationController {
         AlarmWebSocket.broadcastByDevice(dev.getId(), JSONUtil.toJsonStr(wsPayload));
 
         log.info("模拟恢复在线: {}", code);
+        notifyDataChanged(code, "device_online");
         return Result.success(Map.of("deviceCode", code, "online", true, "closedAlarms", active.size()));
     }
 
@@ -148,6 +150,7 @@ public class SimulationController {
         r.put("temp", temp);
         r.put("sent", true);
         log.info("模拟数据: {} smoke={} temp={}", code, smoke, temp);
+        notifyDataChanged(code, "sensor_data");
         return Result.success(r);
     }
 
@@ -278,20 +281,20 @@ public class SimulationController {
         List<SmokeDevice> list = deviceMapper.selectList(null);
         List<Map<String, Object>> r = new ArrayList<>();
         for (SmokeDevice d : list) {
-            r.add(Map.of(
-                    "id", d.getId(),
-                    "deviceCode", d.getDeviceId(),
-                    "name", d.getDeviceName() != null ? d.getDeviceName() : d.getDeviceId(),
-                    "status", d.getStatus() != null ? d.getStatus() : "OFFLINE",
-                    "building", d.getLocationBuilding() != null ? d.getLocationBuilding() : "",
-                    "floor", d.getLocationFloor() != null ? d.getLocationFloor() : "",
-                    "room", d.getLocationRoom() != null ? d.getLocationRoom() : "",
-                    "battery", d.getBattery() != null ? d.getBattery() : 0,
-                    "signalStrength", d.getSignalStrength() != null ? d.getSignalStrength() : 0,
-                    "heartbeatTimeout", d.getHeartbeatTimeout() != null ? d.getHeartbeatTimeout() : 30,
-                    "lastHeartbeat", d.getLastHeartbeat() != null ? d.getLastHeartbeat().toString() : null,
-                    "heartbeatActive", heartbeatActiveDevices.contains(d.getDeviceId())
-            ));
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("id", d.getId());
+            entry.put("deviceCode", d.getDeviceId());
+            entry.put("name", d.getDeviceName() != null ? d.getDeviceName() : d.getDeviceId());
+            entry.put("status", d.getStatus() != null ? d.getStatus() : "OFFLINE");
+            entry.put("building", d.getLocationBuilding() != null ? d.getLocationBuilding() : "");
+            entry.put("floor", d.getLocationFloor() != null ? d.getLocationFloor() : "");
+            entry.put("room", d.getLocationRoom() != null ? d.getLocationRoom() : "");
+            entry.put("battery", d.getBattery() != null ? d.getBattery() : 0);
+            entry.put("signalStrength", d.getSignalStrength() != null ? d.getSignalStrength() : 0);
+            entry.put("heartbeatTimeout", d.getHeartbeatTimeout() != null ? d.getHeartbeatTimeout() : 30);
+            entry.put("lastHeartbeat", d.getLastHeartbeat() != null ? d.getLastHeartbeat().toString() : null);
+            entry.put("heartbeatActive", heartbeatActiveDevices.contains(d.getDeviceId()));
+            r.add(entry);
         }
         return Result.success(r);
     }

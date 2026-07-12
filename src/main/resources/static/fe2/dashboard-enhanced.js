@@ -1658,7 +1658,7 @@ function connectWebSocket() {
         if (payload.kind === "broadcast") { showBroadcastBanner(payload); }
         else if (payload.kind === "device_online") { showDeviceOnlineBanner(payload); }
         else if (payload.kind === "alarm") { showRealtimeAlarmBanner(payload); }
-        else if (payload.kind === "data_changed") { /* silently refresh */ }
+        else if (payload.kind === "data_changed") { if(window.refreshViz)window.refreshViz(); }
         loadScreenData();
         loadAnalysisData();
         loadAlarmRows(1);
@@ -1904,8 +1904,7 @@ function selectVizFlr(floor){
   var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
   var floors=[]; (b.floors||[]).forEach(function(f){floors.push(f.name);}); floors.sort();
   renderVizFlrTabs(floors);
-  var floorData=(b.floors||[]).find(function(f){return f.name===floor;});
-  var devs=floorData?(floorData.devices||[]):[];
+  var devs=(b.devices||[]).filter(function(d){return d.locationFloor===floor;});
   rebuildVizScene(devs,b.name);
   renderVizStats(); renderVizDevicePanel();
 }
@@ -1956,12 +1955,7 @@ function renderVizStats(){
   var bar=el("vizStatsBar"); if(!bar)return;
   var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
   var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
-  var devs=[];
-  (b.floors||[]).forEach(function(f){
-    if(!window._vizFlr||f.name===window._vizFlr){
-      (f.devices||[]).forEach(function(d){devs.push(d);});
-    }
-  });
+  var devs=(b.devices||[]).filter(function(d){return !window._vizFlr||d.locationFloor===window._vizFlr;});
   bar.innerHTML='<span class="viz-stat"><span class="viz-stat-dot online"></span>在线:'+devs.filter(function(d){return d.status==='ONLINE';}).length+'</span> <span class="viz-stat"><span class="viz-stat-dot offline"></span>离线:'+devs.filter(function(d){return d.status==='OFFLINE';}).length+'</span> <span style="margin-left:auto">共'+devs.length+'台</span>';
 }
 
@@ -1970,12 +1964,7 @@ function renderVizDevicePanel(){
   if(!window._vizBld)return;
   var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
   var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
-  var devs=[];
-  (b.floors||[]).forEach(function(f){
-    if(!window._vizFlr||f.name===window._vizFlr){
-      (f.devices||[]).forEach(function(d){devs.push(d);});
-    }
-  });
+  var devs=(b.devices||[]).filter(function(d){return !window._vizFlr||d.locationFloor===window._vizFlr;});
   var sidebar=el("vizSidebar"); if(!sidebar)return;
   var panel=sidebar.querySelector(".viz-device-panel");
   if(!panel){panel=document.createElement("div"); panel.className="viz-device-panel"; sidebar.appendChild(panel);}
