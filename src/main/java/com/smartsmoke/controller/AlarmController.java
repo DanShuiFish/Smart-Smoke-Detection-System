@@ -114,9 +114,10 @@ public class AlarmController {
     }
 
     // 9.3 确认告警 (PENDING/CONFIRMING → CONFIRMED)
+    // 返回 shouldBroadcast 标记，供前端判断是否弹窗询问广播下发
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/{id}/confirm")
-    public Result<Void> confirm(@PathVariable Long id, @RequestBody Map<String, String> body) {
+    public Result<Map<String, Object>> confirm(@PathVariable Long id, @RequestBody Map<String, String> body) {
         Result<AlarmRecord> guard = requireAlarmForUpdate(id, "PENDING", "CONFIRMING");
         if (guard.getCode() != 200) return Result.error(guard.getCode(), guard.getMsg());
         AlarmRecord r = guard.getData();
@@ -126,7 +127,20 @@ public class AlarmController {
         r.setConfirmTime(LocalDateTime.now());
         alarmRecordService.updateById(r);
         pushAlarmUpdate(r);
-        return Result.success();
+
+        // 判断是否需要建议广播
+        boolean shouldBroadcast = "FIRE_RISK".equals(r.getAlarmType())
+                || "SMOKE_OVERFLOW".equals(r.getAlarmType())
+                || "HIGH".equals(r.getAlarmLevel())
+                || "CRITICAL".equals(r.getAlarmLevel());
+        boolean alreadyBroadcast = r.getIsBroadcastSent() != null && r.getIsBroadcastSent() == 1;
+
+        return Result.success(Map.of(
+                "alarmId", r.getId(),
+                "alarmStatus", r.getAlarmStatus(),
+                "shouldBroadcast", shouldBroadcast && !alreadyBroadcast,
+                "deviceId", r.getDeviceId()
+        ));
     }
 
     // 9.4 处置告警 (CONFIRMED → RESOLVED)

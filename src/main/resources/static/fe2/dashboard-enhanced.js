@@ -820,7 +820,17 @@ function renderAlarmTable() {
   }).join("");
   body.querySelectorAll("button[data-action]").forEach((btn) => btn.addEventListener("click", async () => {
     try {
-      await handleAlarmAction(btn.dataset.action, btn.dataset.id);
+      var resp = await handleAlarmAction(btn.dataset.action, btn.dataset.id);
+      // 确认告警后检测是否需要弹窗询问广播
+      if (btn.dataset.action === "confirm" && resp && resp.shouldBroadcast) {
+        var ok = confirm('告警已确认。\n\n检测到火情告警，是否立即向该设备所在区域发送紧急广播？');
+        if (ok) {
+          var alarm = await apiRequest('/alarms/' + btn.dataset.id);
+          if (alarm) {
+            showBroadcastConfirmModal(alarm);
+          }
+        }
+      }
       await loadAlarmRows(state.alarmsPage.page);
       await loadScreenData();
       await loadAnalysisData();
@@ -928,7 +938,7 @@ async function batchHandleAlarms(action) {
   await loadAnalysisData();
 }
 async function handleAlarmAction(action, id) {
-  if (action === "confirm") await apiRequest("/alarms/" + id + "/confirm", { method: "PUT", body: JSON.stringify({ confirmMethod: "MANUAL" }) });
+  if (action === "confirm") return await apiRequest("/alarms/" + id + "/confirm", { method: "PUT", body: JSON.stringify({ confirmMethod: "MANUAL" }) });
   else if (action === "resolve") await apiRequest("/alarms/" + id + "/resolve", { method: "PUT", body: JSON.stringify({ resolveMethod: "ON_SITE", resolveDetail: "由前端快速处置" }) });
   else if (action === "archive") await apiRequest("/alarms/" + id + "/archive", { method: "PUT" });
   else if (action === "close") await apiRequest("/alarms/" + id + "/close", { method: "PUT", body: JSON.stringify({ remark: "由前端关闭" }) });
@@ -1034,6 +1044,48 @@ async function sendBroadcast() {
     addLog("success", "/api/v1/broadcasts/area", "区域广播已下发", 200, 0);
   } catch (error) {
     showGlobalAlert("广播失败: " + error.message);
+  }
+}
+
+// ===== 告警确认弹窗广播 =====
+function showBroadcastConfirmModal(alarm) {
+  var building = alarm.building || alarm.locationBuilding || '';
+  var floor = alarm.floor || alarm.locationFloor || '';
+  var content = '【火警紧急通知】' + building + (floor ? ' ' + floor : '') + '区域检测到火情，请立即按照疏散通道有序撤离！';
+  var area = building + (floor ? ' ' + floor : '');
+
+  var html = '<div class="modal-mask" id="broadcastModal" onclick="if(event.target===this)this.remove()">' +
+    '<div class="modal-panel" style="width:500px">' +
+    '<h3>📢 发送紧急广播</h3>' +
+    '<div class="form-group"><label>广播区域</label><input id="bcArea" value="' + escapeHtml(area) + '" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0;box-sizing:border-box"></div>' +
+    '<div class="form-group"><label>广播内容</label><textarea id="bcContent" rows="4" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0;box-sizing:border-box">' + escapeHtml(content) + '</textarea></div>' +
+    '<div style="display:flex;gap:8px;margin-top:10px">' +
+    '<button class="btn btn-main" onclick="sendBroadcastFromAlarm(' + (alarm.id != null ? Number(alarm.id) : 0) + ')">发送广播</button>' +
+    '<button class="btn" onclick="document.getElementById(\'broadcastModal\').remove()">取消</button></div>' +
+    '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function sendBroadcastFromAlarm(alarmId) {
+  var area = (document.getElementById("bcArea")?.value || "").trim();
+  var content = (document.getElementById("bcContent")?.value || "").trim();
+  if (!content) { showGlobalAlert("请输入广播内容"); return; }
+  try {
+    await apiRequest("/broadcasts", {
+      method: "POST",
+      body: JSON.stringify({
+        alarmId: alarmId,
+        broadcastArea: area,
+        broadcastContent: content,
+        broadcastType: "EMERGENCY",
+        triggerMode: "ALARM_LINKAGE"
+      })
+    });
+    var modal = document.getElementById("broadcastModal");
+    if (modal) modal.remove();
+    showGlobalAlert("紧急广播已发送");
+  } catch (error) {
+    showGlobalAlert("广播发送失败: " + error.message);
   }
 }
 
