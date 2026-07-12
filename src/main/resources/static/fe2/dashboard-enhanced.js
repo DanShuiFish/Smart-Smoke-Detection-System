@@ -1958,7 +1958,7 @@ async function saveVizThr(devId){
     await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"SMOKE_CONCENTRATION",thresholdMax:sH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
     await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"SMOKE_CONCENTRATION",thresholdMax:sM,alarmLevel:"MEDIUM",status:"ENABLED",sortOrder:2})});
     await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"TEMPERATURE",thresholdMax:tH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
-    showGlobalAlert("阈值已保存"); window.initViz();
+    alert('阈值已保存'); window._vizThr = (await apiRequest('/thresholds?page=1&pageSize=200'))?.records || [];
   }catch(e){showGlobalAlert("保存失败:"+e.message);}
 }
 
