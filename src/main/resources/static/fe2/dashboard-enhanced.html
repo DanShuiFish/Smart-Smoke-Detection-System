@@ -375,6 +375,23 @@
                   <textarea id="formRemark" name="remark" rows="3" maxlength="200"></textarea>
                 </label>
               </div>
+              <div class="threshold-section" style="border-top:1px solid var(--line,#e2e8f0);padding-top:12px;margin-top:4px;">
+                <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--text,#1e293b);">阈值配置</div>
+                <div class="device-form-grid">
+                  <label class="form-field">
+                    <span>烟雾 HIGH (mg/m³)</span>
+                    <input id="formSmokeHigh" name="smokeHigh" type="number" step="0.01" min="0" value="0.30" />
+                  </label>
+                  <label class="form-field">
+                    <span>烟雾 MEDIUM (mg/m³)</span>
+                    <input id="formSmokeMed" name="smokeMed" type="number" step="0.01" min="0" value="0.15" />
+                  </label>
+                  <label class="form-field">
+                    <span>温度 HIGH (°C)</span>
+                    <input id="formTempHigh" name="tempHigh" type="number" step="0.1" min="0" value="65" />
+                  </label>
+                </div>
+              </div>
               <div class="form-actions">
                 <button type="button" class="btn" data-device-form-close="true">取消</button>
                 <button id="btnSubmitDeviceForm" type="submit" class="btn btn-main">保存</button>

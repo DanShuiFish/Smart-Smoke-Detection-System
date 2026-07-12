@@ -584,6 +584,25 @@ function openDeviceFormModal(mode, item) {
   fillDeviceForm(item || {});
   setDeviceIdValidation("", "");
   modal.classList.remove("hidden");
+  // 编辑时加载已有阈值
+  if (mode === "edit" && item && item.id) {
+    loadDeviceThresholds(item.id);
+  }
+}
+async function loadDeviceThresholds(devId) {
+  try {
+    const d = await apiRequest("/thresholds?page=1&pageSize=200&_t=" + Date.now());
+    const all = (d && d.records) || [];
+    const devThr = all.filter(function(t) { return String(t.deviceId) === String(devId); });
+    var sH = devThr.find(function(t) { return t.thresholdType === 'SMOKE_CONCENTRATION' && t.alarmLevel === 'HIGH'; });
+    var sM = devThr.find(function(t) { return t.thresholdType === 'SMOKE_CONCENTRATION' && t.alarmLevel === 'MEDIUM'; });
+    var tH = devThr.find(function(t) { return t.thresholdType === 'TEMPERATURE'; });
+    if (el("formSmokeHigh")) el("formSmokeHigh").value = sH ? sH.thresholdMax : '0.30';
+    if (el("formSmokeMed")) el("formSmokeMed").value = sM ? sM.thresholdMax : '0.15';
+    if (el("formTempHigh")) el("formTempHigh").value = tH ? tH.thresholdMax : '65';
+  } catch (e) {
+    console.warn("阈值加载失败:", e);
+  }
 }
 function closeDeviceFormModal() {
   const modal = el("deviceFormModal");
@@ -846,10 +865,18 @@ async function submitDeviceForm(event) {
   try {
     const payload = await validateDeviceForm(true);
     const isEdit = state.deviceFormMode === "edit" && state.editingDeviceId;
-    await apiRequest(isEdit ? "/devices/" + state.editingDeviceId : "/devices", {
+    const resp = await apiRequest(isEdit ? "/devices/" + state.editingDeviceId : "/devices", {
       method: isEdit ? "PUT" : "POST",
       body: JSON.stringify(payload),
     });
+    // 保存阈值
+    var devId = (resp && resp.id) || state.editingDeviceId;
+    if (devId) {
+      var sH = parseFloat(el("formSmokeHigh")?.value) || 0.30;
+      var sM = parseFloat(el("formSmokeMed")?.value) || 0.15;
+      var tH = parseFloat(el("formTempHigh")?.value) || 65;
+      await saveDevThrSilent(devId, sH, sM, tH);
+    }
     closeDeviceFormModal();
     await Promise.all([loadDeviceStats(), loadDevices(isEdit ? state.devicesPage.page : 1), loadScreenData(), loadAnalysisData()]);
     showGlobalAlert(isEdit ? "设备更新成功" : "设备新增成功");
@@ -1959,6 +1986,22 @@ async function saveDevThr(devId){
     await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"TEMPERATURE",thresholdMax:tH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
     showGlobalAlert("阈值已保存"); closeDetailModal();
   }catch(e){showGlobalAlert("保存失败:"+e.message);}
+}
+
+// 设备表单中静默保存阈值（先删旧阈值，再插新阈值）
+async function saveDevThrSilent(devId, sH, sM, tH) {
+  try {
+    var old = await apiRequest("/thresholds?page=1&pageSize=200&deviceId=" + devId);
+    var records = (old && old.records) || [];
+    for (var i = 0; i < records.length; i++) {
+      await apiRequest("/thresholds/" + records[i].id, { method: "DELETE" });
+    }
+    await apiRequest("/thresholds", { method: "POST", body: JSON.stringify({ deviceId: Number(devId), thresholdType: "SMOKE_CONCENTRATION", thresholdMax: sH, alarmLevel: "HIGH", status: "ENABLED", sortOrder: 1 }) });
+    await apiRequest("/thresholds", { method: "POST", body: JSON.stringify({ deviceId: Number(devId), thresholdType: "SMOKE_CONCENTRATION", thresholdMax: sM, alarmLevel: "MEDIUM", status: "ENABLED", sortOrder: 2 }) });
+    await apiRequest("/thresholds", { method: "POST", body: JSON.stringify({ deviceId: Number(devId), thresholdType: "TEMPERATURE", thresholdMax: tH, alarmLevel: "HIGH", status: "ENABLED", sortOrder: 1 }) });
+  } catch (e) {
+    console.warn("阈值保存失败（不影响设备保存）:", e);
+  }
 }
 
 bootstrap();
