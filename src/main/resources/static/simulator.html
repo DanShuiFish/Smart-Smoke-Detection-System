@@ -313,7 +313,7 @@ function renderDeviceList() {
   el.innerHTML = filtered.map(function(d) {
     var isActive = activeDevice === d.deviceCode;
     var hbRunning = !!heartbeatTimers[d.deviceCode];
-    return '<div class="device-item' + (isActive ? ' active' : '') + '" onclick="selectDevice(\'' + d.deviceCode + '\')">' +
+    return '<div class="device-item' + (isActive ? ' active' : '') + '" onclick="selectDevice(event,\'' + d.deviceCode + '\')">' +
       '<span class="dot ' + (d.status === 'ONLINE' ? 'on' : 'off') + '"></span>' +
       '<div class="info"><div class="code">' + esc(d.deviceCode) + '</div><div class="addr">' + esc(d.name) + ' · ' + esc(d.building||'') + esc(d.floor||'') + '</div></div>' +
       '<span class="hb ' + (hbRunning ? 'running' : 'stopped') + '">' + (hbRunning ? '心跳中' : '') + '</span>' +
@@ -323,9 +323,9 @@ function renderDeviceList() {
   document.getElementById('batchCnt').textContent = selectedSet.size;
 }
 
-function selectDevice(code) {
+function selectDevice(evt, code) {
   // Toggle selection with Ctrl/Cmd
-  if (event.ctrlKey || event.metaKey) {
+  if (evt.ctrlKey || evt.metaKey) {
     selectedSet.has(code) ? selectedSet.delete(code) : selectedSet.add(code);
     renderDeviceList();
   } else {

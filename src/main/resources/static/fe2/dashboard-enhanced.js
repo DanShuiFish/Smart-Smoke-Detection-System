@@ -592,7 +592,7 @@ function openDeviceFormModal(mode, item) {
 async function loadDeviceThresholds(devId) {
   try {
     const d = await apiRequest("/thresholds?page=1&pageSize=200&_t=" + Date.now());
-    const all = (d && d.records) || [];
+    const all = Array.isArray(d) ? d : ((d && d.records) || []);
     const devThr = all.filter(function(t) { return String(t.deviceId) === String(devId); });
     var sH = devThr.find(function(t) { return t.thresholdType === 'SMOKE_CONCENTRATION' && t.alarmLevel === 'HIGH'; });
     var sM = devThr.find(function(t) { return t.thresholdType === 'SMOKE_CONCENTRATION' && t.alarmLevel === 'MEDIUM'; });
@@ -1657,7 +1657,8 @@ function connectWebSocket() {
         const payload = JSON.parse(event.data);
         if (payload.kind === "broadcast") { showBroadcastBanner(payload); }
         else if (payload.kind === "device_online") { showDeviceOnlineBanner(payload); }
-        else { showRealtimeAlarmBanner(payload); }
+        else if (payload.kind === "alarm") { showRealtimeAlarmBanner(payload); }
+        else if (payload.kind === "data_changed") { /* silently refresh */ }
         loadScreenData();
         loadAnalysisData();
         loadAlarmRows(1);
@@ -1665,7 +1666,7 @@ function connectWebSocket() {
         loadDeviceStats();
         loadDevices(state.devicesPage.page || 1);
       } catch (error) {
-        showGlobalAlert("实时告警: " + event.data);
+        console.error("WebSocket message error:", error);
       }
     };
   } catch (error) {
@@ -1832,7 +1833,7 @@ window._vizScene=null; window._vizCamera=null; window._vizRenderer=null; window.
 
 window.initViz=async function(){
   var d=await apiRequest("/devices/building-tree"); window._vizData=(d&&d.buildings)?d:null;
-  var t=await apiRequest("/thresholds?page=1&pageSize=200"); window._vizThr=(t&&t.records)?t.records:[];
+  var t=await apiRequest("/thresholds?page=1&pageSize=200"); window._vizThr=Array.isArray(t)?t:((t&&t.records)?t.records:[]);
   initThreeJS();
   renderVizBlds();
   if(window._vizData&&window._vizData.buildings.length>0&&!window._vizBld) selectVizBld(window._vizData.buildings[0].name);
@@ -2022,14 +2023,14 @@ async function saveVizThr(devId){
     await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"SMOKE_CONCENTRATION",thresholdMax:sH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
     await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"SMOKE_CONCENTRATION",thresholdMax:sM,alarmLevel:"MEDIUM",status:"ENABLED",sortOrder:2})});
     await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"TEMPERATURE",thresholdMax:tH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
-    alert('阈值已保存'); window._vizThr = (await apiRequest('/thresholds?page=1&pageSize=200'))?.records || [];
+    alert('阈值已保存'); var _t=await apiRequest('/thresholds?page=1&pageSize=200'); window._vizThr=Array.isArray(_t)?_t:((_t&&_t.records)||[]);
   }catch(e){showGlobalAlert("保存失败:"+e.message);}
 }
 
 // 设备管理页阈值
 window._devThr=[];
 async function showDevThrModal(devId,devCode){
-  var d=await apiRequest("/thresholds?page=1&pageSize=200&_t="+Date.now()); window._devThr=(d&&d.records)?d.records:[];
+  var d=await apiRequest("/thresholds?page=1&pageSize=200&_t="+Date.now()); window._devThr=Array.isArray(d)?d:((d&&d.records)?d.records:[]);
   var sH=window._devThr.find(function(t){return String(t.deviceId)===String(devId)&&t.thresholdType==='SMOKE_CONCENTRATION'&&t.alarmLevel==='HIGH';});
   var sM=window._devThr.find(function(t){return String(t.deviceId)===String(devId)&&t.thresholdType==='SMOKE_CONCENTRATION'&&t.alarmLevel==='MEDIUM';});
   var tH=window._devThr.find(function(t){return String(t.deviceId)===String(devId)&&t.thresholdType==='TEMPERATURE';});
@@ -2056,7 +2057,7 @@ async function saveDevThr(devId){
 async function saveDevThrSilent(devId, sH, sM, tH) {
   try {
     var old = await apiRequest("/thresholds?page=1&pageSize=200&deviceId=" + devId);
-    var records = (old && old.records) || [];
+    var records = Array.isArray(old) ? old : ((old && old.records) || []);
     records = records.filter(function(t) { return String(t.deviceId) === String(devId); });
     for (var i = 0; i < records.length; i++) {
       await apiRequest("/thresholds/" + records[i].id, { method: "DELETE" });
