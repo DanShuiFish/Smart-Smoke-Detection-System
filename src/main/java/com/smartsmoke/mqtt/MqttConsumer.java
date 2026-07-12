@@ -127,7 +127,8 @@ public class MqttConsumer {
         deviceMapper.updateById(updateDevice);
 
         // Redis 心跳续期：Key 过期后由 RedisKeyspaceListener 触发离线告警
-        int ttl = Math.max(device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 30, 30);
+        // TTL 最小值 90s，防止浏览器后台标签页节流 setInterval(10s→~60s) 导致误报离线
+        int ttl = Math.max(device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 90, 90);
         stringRedisTemplate.opsForValue()
                 .set("device:heartbeat:" + heartbeat.getDeviceId(), "1", Duration.ofSeconds(ttl));
 
@@ -175,7 +176,8 @@ public class MqttConsumer {
         deviceMapper.updateById(updateDevice);
 
         // 数据上报设备也写 Redis 心跳 Key，确保离线检测覆盖纯数据上报设备
-        int dataTtl = Math.max(device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 30, 30);
+        // TTL 最小值 90s，防止浏览器后台标签页节流 setInterval(10s→~60s) 导致误报离线
+        int dataTtl = Math.max(device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 90, 90);
         stringRedisTemplate.opsForValue()
                 .set("device:heartbeat:" + report.getDeviceId(), "1", Duration.ofSeconds(dataTtl));
 

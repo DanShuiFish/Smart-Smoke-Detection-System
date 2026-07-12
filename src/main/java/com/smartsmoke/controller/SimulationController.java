@@ -215,8 +215,8 @@ public class SimulationController {
         upd.setSignalStrength(rssi);
         deviceMapper.updateById(upd);
 
-        // 写入 Redis 心跳 Key（TTL 至少 30 秒，防止 DB 异常值导致过早过期）
-        int ttl = Math.max(dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 30, 30);
+        // 写入 Redis 心跳 Key（TTL 至少 90 秒，防止浏览器后台标签页节流导致误报离线）
+        int ttl = Math.max(dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 90, 90);
         stringRedisTemplate.opsForValue().set(
                 "device:heartbeat:" + code,
                 String.valueOf(System.currentTimeMillis()),
@@ -251,8 +251,8 @@ public class SimulationController {
         upd.setLastOnlineTime(LocalDateTime.now());
         deviceMapper.updateById(upd);
 
-        // 立即设置 Redis 心跳 Key（防御：即使后续 sendHeartbeat 失败也不会误报离线）
-        int ttl = Math.max(dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 30, 30);
+        // 立即设置 Redis 心跳 Key（TTL 至少 90 秒，防御浏览器后台标签页节流）
+        int ttl = Math.max(dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 90, 90);
         stringRedisTemplate.opsForValue().set(
                 "device:heartbeat:" + code,
                 String.valueOf(System.currentTimeMillis()),
