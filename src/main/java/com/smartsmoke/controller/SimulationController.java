@@ -8,7 +8,9 @@ import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.rule.AlarmRuleEngine;
 import com.smartsmoke.service.AlarmRecordService;
 import com.smartsmoke.websocket.AlarmWebSocket;
+import com.smartsmoke.mqtt.MqttConsumer;
 import cn.hutool.json.JSONUtil;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +18,8 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 设备模拟器 API — 接真实硬件后直接删除此文件即可。
@@ -29,6 +33,11 @@ public class SimulationController {
     private final AlarmRuleEngine alarmRuleEngine;
     private final DeviceMapper deviceMapper;
     private final AlarmRecordService alarmRecordService;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final MqttConsumer mqttConsumer;
+
+    // 心跳状态存储（仅内存，重启后根据设备 DB 状态重新判断）
+    private final Set<String> heartbeatActiveDevices = ConcurrentHashMap.newKeySet();
 
     // ===== 模拟设备离线 =====
     @PostMapping("/offline")
@@ -181,6 +190,112 @@ public class SimulationController {
         return Result.success(r);
     }
 
+    // ===== 模拟器心跳 =====
+    @PostMapping("/heartbeat")
+    public Result<Map<String, Object>> heartbeat(@RequestBody Map<String, Object> body) {
+        String code = str(body, "deviceCode");
+        Integer bat = (Integer) body.getOrDefault("bat", 90);
+        Integer rssi = (Integer) body.getOrDefault("rssi", -40);
+        if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
+
+        SmokeDevice dev = resolveDevice(code);
+        // 更新设备状态为 ONLINE
+        SmokeDevice upd = new SmokeDevice();
+        upd.setId(dev.getId());
+        upd.setStatus("ONLINE");
+        upd.setLastOnlineTime(LocalDateTime.now());
+        upd.setLastHeartbeat(LocalDateTime.now());
+        upd.setBattery(bat);
+        upd.setSignalStrength(rssi);
+        deviceMapper.updateById(upd);
+
+        // 写入 Redis 心跳 Key
+        stringRedisTemplate.opsForValue().set(
+                "device:heartbeat:" + code,
+                String.valueOf(System.currentTimeMillis()),
+                dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 30,
+                TimeUnit.SECONDS
+        );
+
+        // 关闭该设备的离线告警
+        closeOfflineAlarms(dev.getId());
+
+        // WebSocket 通知
+        notifyDataChanged(code, "heartbeat");
+
+        Map<String, Object> r = new HashMap<>();
+        r.put("deviceCode", code);
+        r.put("online", true);
+        r.put("heartbeat", true);
+        return Result.success(r);
+    }
+
+    @PostMapping("/heartbeat/start")
+    public Result<Map<String, Object>> startHeartbeat(@RequestBody Map<String, Object> body) {
+        String code = str(body, "deviceCode");
+        if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
+        heartbeatActiveDevices.add(code);
+        // 恢复上线
+        SmokeDevice dev = resolveDevice(code);
+        SmokeDevice upd = new SmokeDevice();
+        upd.setId(dev.getId());
+        upd.setStatus("ONLINE");
+        upd.setLastOnlineTime(LocalDateTime.now());
+        deviceMapper.updateById(upd);
+        notifyDataChanged(code, "heartbeat_start");
+        log.info("模拟器心跳启动: {}", code);
+        return Result.success(Map.of("deviceCode", code, "heartbeatActive", true));
+    }
+
+    @PostMapping("/heartbeat/stop")
+    public Result<Map<String, Object>> stopHeartbeat(@RequestBody Map<String, Object> body) {
+        String code = str(body, "deviceCode");
+        if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
+        heartbeatActiveDevices.remove(code);
+        // 删除 Redis 心跳 Key，触发离线检测
+        stringRedisTemplate.delete("device:heartbeat:" + code);
+        notifyDataChanged(code, "heartbeat_stop");
+        log.info("模拟器心跳停止: {}", code);
+        return Result.success(Map.of("deviceCode", code, "heartbeatActive", false));
+    }
+
+    @GetMapping("/heartbeat/status")
+    public Result<Map<String, Object>> heartbeatStatus(@RequestParam(defaultValue = "") String deviceCode) {
+        if (deviceCode.isEmpty()) {
+            // 返回所有设备心跳状态
+            Map<String, Boolean> all = new LinkedHashMap<>();
+            List<SmokeDevice> devices = deviceMapper.selectList(null);
+            for (SmokeDevice d : devices) {
+                all.put(d.getDeviceId(), heartbeatActiveDevices.contains(d.getDeviceId()));
+            }
+            return Result.success(Map.of("activeDevices", heartbeatActiveDevices, "deviceStatus", all));
+        }
+        return Result.success(Map.of("deviceCode", deviceCode, "active", heartbeatActiveDevices.contains(deviceCode)));
+    }
+
+    @GetMapping("/status")
+    public Result<List<Map<String, Object>>> status() {
+        List<SmokeDevice> list = deviceMapper.selectList(null);
+        List<Map<String, Object>> r = new ArrayList<>();
+        for (SmokeDevice d : list) {
+            r.add(Map.of(
+                    "id", d.getId(),
+                    "deviceCode", d.getDeviceId(),
+                    "name", d.getDeviceName() != null ? d.getDeviceName() : d.getDeviceId(),
+                    "status", d.getStatus() != null ? d.getStatus() : "OFFLINE",
+                    "building", d.getLocationBuilding() != null ? d.getLocationBuilding() : "",
+                    "floor", d.getLocationFloor() != null ? d.getLocationFloor() : "",
+                    "room", d.getLocationRoom() != null ? d.getLocationRoom() : "",
+                    "battery", d.getBattery() != null ? d.getBattery() : 0,
+                    "signalStrength", d.getSignalStrength() != null ? d.getSignalStrength() : 0,
+                    "heartbeatTimeout", d.getHeartbeatTimeout() != null ? d.getHeartbeatTimeout() : 30,
+                    "lastHeartbeat", d.getLastHeartbeat() != null ? d.getLastHeartbeat().toString() : null,
+                    "heartbeatActive", heartbeatActiveDevices.contains(d.getDeviceId())
+            ));
+        }
+        return Result.success(r);
+    }
+
     // ===== helpers =====
     private SmokeDevice resolveDevice(String code) {
         SmokeDevice d = deviceMapper.selectOne(
@@ -214,5 +329,29 @@ public class SimulationController {
     private double dbl(Map<String, Object> m, String k, double def) {
         try { Object v = m.get(k); return v != null ? Double.parseDouble(v.toString()) : def; }
         catch (NumberFormatException e) { return def; }
+    }
+
+    private void closeOfflineAlarms(Long deviceId) {
+        List<AlarmRecord> active = alarmRecordService.lambdaQuery()
+                .eq(AlarmRecord::getDeviceId, deviceId)
+                .eq(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")
+                .in(AlarmRecord::getAlarmStatus, List.of("PENDING", "CONFIRMING", "CONFIRMED"))
+                .list();
+        for (AlarmRecord a : active) {
+            a.setAlarmStatus("CLOSED");
+            a.setRemark("设备恢复在线，自动关闭离线告警");
+            alarmRecordService.updateById(a);
+        }
+    }
+
+    private void notifyDataChanged(String deviceCode, String action) {
+        Map<String, Object> wsPayload = new HashMap<>();
+        wsPayload.put("kind", "data_changed");
+        wsPayload.put("source", "simulator");
+        wsPayload.put("deviceId", deviceCode);
+        wsPayload.put("action", action);
+        wsPayload.put("ts", System.currentTimeMillis());
+        // 广播给所有连接
+        AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(wsPayload));
     }
 }
