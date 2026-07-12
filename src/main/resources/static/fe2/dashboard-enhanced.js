@@ -300,6 +300,7 @@ function switchView(view) {
   if (banner) banner.textContent = pair[0];
   if (view === "reviews") { loadReviewRows(1); }
   if (view === "broadcasts") { loadBroadcastOptions(); loadBroadcastHistory(1); }
+  if (view === "viz") { setTimeout(function(){ window.initViz(); }, 200); }
   if (view === "viz") { if (window.refreshViz) window.refreshViz(); }
   setTimeout(resizeVisibleCharts, 80);
 }
@@ -724,7 +725,7 @@ function renderDevicesTable() {
       '<td><span class="status-badge ' + deviceStatusClass(status) + '">' + escapeHtml(getDeviceStatusLabel(status)) + '</span></td>' +
       '<td>' + escapeHtml(safeText(item.battery, "--")) + '%</td>' +
       '<td>' + escapeHtml(safeText(item.signalStrength, "--")) + '%</td>' +
-      '<td><div class="table-actions"><button class="btn" data-device-edit="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">编辑</button><button class="btn danger" data-device-delete="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">删除</button><button class="btn" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button></div></td>' +
+      '<td><div class="table-actions"><button class="btn" data-device-edit="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">编辑</button><button class="btn danger" data-device-delete="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">删除</button><button class="btn" data-device-detail="true" data-id="' + escapeHtml(safeText(item.id, "")) + '">详情</button><button class="btn" data-device-threshold="true" data-id="' + escapeHtml(safeText(item.id, "")) + '" data-code="' + escapeHtml(safeText(item.deviceId, "")) + '">阈值</button></div></td>' +
       '</tr>';
   }).join("");
   body.querySelectorAll("input[data-device-check]").forEach((input) => input.addEventListener("change", () => toggleDeviceSelection(input.dataset.id, input.checked)));
@@ -739,6 +740,9 @@ function renderDevicesTable() {
   }));
   body.querySelectorAll("button[data-device-delete]").forEach((button) => button.addEventListener("click", async () => {
     await deleteDevice(button.dataset.id);
+  }));
+  body.querySelectorAll("button[data-device-threshold]").forEach((button) => button.addEventListener("click", () => {
+    showDevThrModal(button.dataset.id, button.dataset.code);
   }));
   body.querySelectorAll("tr").forEach((row, index) => row.addEventListener("dblclick", () => showDeviceDetail(rows[index].id)));
   updateDeviceBatchHint();
@@ -1740,6 +1744,221 @@ async function bootstrap() {
   await Promise.all([loadDeviceStats(), loadDevices(1), loadScreenData(), loadAnalysisData(), loadAlarmRows(1)]);
   renderAiJudgement();
   setInterval(async () => { await loadHealthStatus(); await loadScreenData(); }, 10000);
+}
+
+// ===== 设备可视化 (Three.js 3D 楼层图 v2) =====
+window._vizData=null; window._vizSel=null; window._vizBld=null; window._vizFlr=null; window._vizThr=[];
+window._vizScene=null; window._vizCamera=null; window._vizRenderer=null; window._vizMarkers=[]; window._vizPulseObjs=[];
+
+window.initViz=async function(){
+  var d=await apiRequest("/devices/building-tree"); window._vizData=(d&&d.buildings)?d:null;
+  var t=await apiRequest("/thresholds?page=1&pageSize=200"); window._vizThr=(t&&t.records)?t.records:[];
+  initThreeJS();
+  renderVizBlds();
+  if(window._vizData&&window._vizData.buildings.length>0&&!window._vizBld) selectVizBld(window._vizData.buildings[0].name);
+  else if(window._vizBld) selectVizBld(window._vizBld);
+};
+window.refreshViz=function(){window.initViz();};
+
+function initThreeJS(){
+  if(window._vizRenderer) return;
+  var container=el("vizFloorPlan"); if(!container)return;
+  var W=container.clientWidth||800, H=container.clientHeight||500;
+  window._vizScene=new THREE.Scene(); window._vizScene.background=new THREE.Color(0x0f172a);
+  window._vizScene.fog=new THREE.Fog(0x0f172a,5,25);
+  window._vizCamera=new THREE.PerspectiveCamera(45,W/H,0.1,1000); window._vizCamera.position.set(10,8,12); window._vizCamera.lookAt(0,2,0);
+  window._vizRenderer=new THREE.WebGLRenderer({antialias:true,alpha:true}); window._vizRenderer.setSize(W,H); window._vizRenderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  window._vizRenderer.shadowMap.enabled=true; window._vizRenderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  container.innerHTML=''; container.appendChild(window._vizRenderer.domElement);
+  // Lights
+  window._vizScene.add(new THREE.AmbientLight(0x334155,1.2));
+  var sun=new THREE.DirectionalLight(0xffffff,1.5); sun.position.set(15,20,10); sun.castShadow=true; sun.shadow.mapSize.set(1024,1024); window._vizScene.add(sun);
+  var fill=new THREE.DirectionalLight(0x60a5fa,0.4); fill.position.set(-5,3,-5); window._vizScene.add(fill);
+  // Grid floor
+  var grid=new THREE.GridHelper(16,16,0x1e293b,0x1e293b); grid.position.y=-0.01; window._vizScene.add(grid);
+  // OrbitControls (drag to rotate)
+  window._vizControls=new THREE.OrbitControls(window._vizCamera,window._vizRenderer.domElement);
+  window._vizControls.enableDamping=true; window._vizControls.dampingFactor=0.1; window._vizControls.target.set(0,2,0);
+  // Raycaster
+  window._vizRaycaster=new THREE.Raycaster();
+  window._vizRenderer.domElement.addEventListener('click',function(e){
+    var rect=this.getBoundingClientRect(); var mx=((e.clientX-rect.left)/rect.width)*2-1; var my=-((e.clientY-rect.top)/rect.height)*2+1;
+    window._vizRaycaster.setFromCamera(new THREE.Vector2(mx,my),window._vizCamera);
+    var hits=window._vizRaycaster.intersectObjects(window._vizMarkers);
+    if(hits.length>0){var ud=hits[0].object.userData; if(ud.clickable){selectVizDev(ud); highlightVizMarker(hits[0].object);}}
+  });
+  // Animation loop
+  function animate(){requestAnimationFrame(animate); window._vizControls.update();
+    window._vizPulseObjs.forEach(function(o){if(o.userData.pulsing){o.material.emissiveIntensity=0.4+Math.sin(Date.now()*0.01)*0.4;}});
+    window._vizRenderer.render(window._vizScene,window._vizCamera);} animate();
+  // Resize
+  window.addEventListener('resize',function(){if(!window._vizRenderer)return; var c=el("vizFloorPlan"); if(!c)return; window._vizCamera.aspect=c.clientWidth/c.clientHeight; window._vizCamera.updateProjectionMatrix(); window._vizRenderer.setSize(c.clientWidth,c.clientHeight);});
+}
+
+function renderVizBlds(){
+  var l=el("vizBuildingList"); if(!l)return;
+  var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
+  l.innerHTML=bs.map(function(b){var n=b.name||''; return '<div class="viz-building-item'+(window._vizBld===n?' active':'')+'" data-bld="'+escapeHtml(n)+'" onclick="selectVizBld(this.dataset.bld)">'+escapeHtml(n)+' <span class="count">'+(b.total||0)+'台</span></div>';}).join('');
+}
+
+function selectVizBld(name){
+  window._vizBld=name; window._vizFlr=null;
+  renderVizBlds(); renderVizStats(); renderVizDevicePanel();
+  var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
+  var b=bs.find(function(x){return x.name===name;}); if(!b)return;
+  var floors=[]; (b.floors||[]).forEach(function(f){floors.push(f.name);}); floors.sort();
+  renderVizFlrTabs(floors);
+  if(floors.length>0) selectVizFlr(floors[0]);
+  else rebuildVizScene([]);
+}
+
+function renderVizFlrTabs(floors){
+  var t=el("vizFloorTabs"); if(!t)return;
+  t.innerHTML=floors.map(function(f){return '<button class="viz-floor-tab'+(window._vizFlr===f?' active':'')+'" data-flr="'+escapeHtml(f)+'" onclick="selectVizFlr(this.dataset.flr)">'+escapeHtml(f)+'</button>';}).join('');
+}
+
+function selectVizFlr(floor){
+  window._vizFlr=floor;
+  var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
+  var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
+  var floors=[]; (b.floors||[]).forEach(function(f){floors.push(f.name);}); floors.sort();
+  renderVizFlrTabs(floors);
+  var devs=(b.devices||[]).filter(function(d){return d.locationFloor===floor;});
+  rebuildVizScene(devs,b.name);
+  renderVizStats(); renderVizDevicePanel();
+}
+
+function rebuildVizScene(devs,bldName){
+  if(!window._vizScene) return;
+  // Clear existing markers
+  window._vizMarkers.forEach(function(o){window._vizScene.remove(o);}); window._vizMarkers=[];
+  window._vizPulseObjs.forEach(function(o){window._vizScene.remove(o);}); window._vizPulseObjs=[];
+  // Multi-floor 3D building
+  var floors=[]; devs.forEach(function(d){var f=d.locationFloor||''; if(floors.indexOf(f)<0)floors.push(f);}); floors.sort();
+  var numFloors=Math.max(floors.length,1); var bldW=7, bldD=5, floorH=1.2;
+  var isClickable=true;
+  // Draw each floor as a glass box
+  var bx=-bldW/2, bz=-bldD/2;
+  for(var fi=0; fi<numFloors; fi++){
+    var fy=fi*floorH;
+    // Floor slab
+    var slabGeo=new THREE.BoxGeometry(bldW,0.08,bldD); var slabMat=new THREE.MeshPhongMaterial({color:0x334155}); var slab=new THREE.Mesh(slabGeo,slabMat); slab.position.set(bx+bldW/2,fy,bz+bldD/2); slab.receiveShadow=true; slab.castShadow=true; window._vizScene.add(slab);
+    // Glass walls
+    var wallGeo=new THREE.BoxGeometry(bldW,floorH-0.1,bldD); var wallMat=new THREE.MeshPhongMaterial({color:0x60a5fa,transparent:true,opacity:0.08,emissive:0x1e3a5f,emissiveIntensity:0.3}); var wall=new THREE.Mesh(wallGeo,wallMat); wall.position.set(bx+bldW/2,fy+floorH/2,bz+bldD/2); wall.userData={floor:i}; window._vizScene.add(wall);
+    // Edge lines
+    var edgeGeo=new THREE.EdgesGeometry(wallGeo); var edgeMat=new THREE.LineBasicMaterial({color:0x475569}); var edge=new THREE.LineSegments(edgeGeo,edgeMat); wall.add(edge);
+    // Floor label
+    var canvas=document.createElement('canvas'); canvas.width=256; canvas.height=32; var ctx=canvas.getContext('2d'); ctx.fillStyle='#94a3b8'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center'; ctx.fillText(floors[fi]||'',128,22); var tex=new THREE.CanvasTexture(canvas); var spMat=new THREE.SpriteMaterial({map:tex,transparent:true}); var sp=new THREE.Sprite(spMat); sp.position.set(bx+bldW+0.5,fy+floorH/2,bz); sp.scale.set(2,0.3,1); window._vizScene.add(sp);
+    // Devices on this floor
+    var floorDevs=devs.filter(function(d){return (d.locationFloor||'')===floors[fi];});
+    floorDevs.forEach(function(d,di){
+      var dCol=di%4, dRow=Math.floor(di/4);
+      var dx=bx+1.2+dCol*1.5, dy=fy+0.4+dRow*0.6, dz=bz+1.5;
+      var color=d.status==='ONLINE'?0x22c55e:0xef4444;
+      var geo=new THREE.SphereGeometry(0.22,32,32);
+      var mat=new THREE.MeshPhongMaterial({color:color,emissive:color,emissiveIntensity:0.5,shininess:100});
+      var mesh=new THREE.Mesh(geo,mat); mesh.position.set(dx,dy,dz); mesh.castShadow=true;
+      mesh.userData={deviceId:d.deviceId,id:d.id,clickable:isClickable,floor:floors[fi],status:d.status};
+      window._vizScene.add(mesh); window._vizMarkers.push(mesh);
+      // Glow ring
+      var ringGeo=new THREE.TorusGeometry(0.28,0.03,8,32); var ringMat=new THREE.MeshBasicMaterial({color:color,transparent:true,opacity:0.6}); var ring=new THREE.Mesh(ringGeo,ringMat); ring.position.copy(mesh.position); ring.rotation.x=Math.PI/2; window._vizScene.add(ring); window._vizPulseObjs.push(ring);
+      // Label
+      var lCanvas=document.createElement('canvas'); lCanvas.width=128; lCanvas.height=24; var lCtx=lCanvas.getContext('2d'); lCtx.fillStyle='#e2e8f0'; lCtx.font='9px sans-serif'; lCtx.textAlign='center'; lCtx.fillText((d.deviceId||'').substring(0,8),64,16); var lTex=new THREE.CanvasTexture(lCanvas); var lSpMat=new THREE.SpriteMaterial({map:lTex,transparent:true}); var lSp=new THREE.Sprite(lSpMat); lSp.position.set(dx,dy+0.35,dz); lSp.scale.set(1.2,0.25,1); window._vizScene.add(lSp);
+    });
+  }
+}
+
+function highlightVizMarker(mesh){window._vizMarkers.forEach(function(m){m.material.emissiveIntensity=0.5;}); mesh.material.emissiveIntensity=1; mesh.material.emissive=new THREE.Color(0xffff00); setTimeout(function(){mesh.material.emissive=new THREE.Color(mesh.userData.status==='ONLINE'?0x22c55e:0xef4444); mesh.material.emissiveIntensity=0.5;},1500);}
+
+function renderVizStats(){
+  var bar=el("vizStatsBar"); if(!bar)return;
+  var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
+  var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
+  var devs=(b.devices||[]).filter(function(d){return !window._vizFlr||d.locationFloor===window._vizFlr;});
+  bar.innerHTML='<span class="viz-stat"><span class="viz-stat-dot online"></span>在线:'+devs.filter(function(d){return d.status==='ONLINE';}).length+'</span> <span class="viz-stat"><span class="viz-stat-dot offline"></span>离线:'+devs.filter(function(d){return d.status==='OFFLINE';}).length+'</span> <span style="margin-left:auto">共'+devs.length+'台</span>';
+}
+
+// Device list panel in sidebar
+function renderVizDevicePanel(){
+  if(!window._vizBld)return;
+  var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
+  var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
+  var devs=(b.devices||[]).filter(function(d){return !window._vizFlr||d.locationFloor===window._vizFlr;});
+  var sidebar=el("vizSidebar"); if(!sidebar)return;
+  var panel=sidebar.querySelector(".viz-device-panel");
+  if(!panel){panel=document.createElement("div"); panel.className="viz-device-panel"; sidebar.appendChild(panel);}
+  panel.innerHTML='<div style="font-weight:700;font-size:11px;margin:8px 0 4px;padding-top:8px;border-top:1px solid #e2e8f0">📋 设备清单 ('+devs.length+')</div>';
+  devs.forEach(function(d){
+    var cls=d.status==='ONLINE'?'online':'offline'; var sel=window._vizSel&&window._vizSel.id===d.id;
+    panel.innerHTML+='<div class="viz-device-list-item'+(sel?' selected':'')+'" data-dcode="'+escapeHtml(d.deviceId||'')+'" data-did="'+d.id+'" onclick="selectVizDevFromList(this.dataset.dcode,parseInt(this.dataset.did))" style="padding:4px 6px;cursor:pointer;font-size:10px;border-radius:4px;'+(sel?'background:#eff6ff;font-weight:600;':'')+'"><span class="d '+cls+'" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:'+(d.status==='ONLINE'?'#22c55e':'#ef4444')+';margin-right:4px;"></span>'+escapeHtml(d.deviceId||'')+' · '+escapeHtml(d.locationRoom||'')+'</div>';
+  });
+}
+async function selectVizDevFromList(deviceCode,deviceId){
+  window._vizSel={deviceId:deviceCode,id:deviceId};
+  renderVizDevicePanel();
+  renderVizDetail({deviceId:deviceCode,id:deviceId});
+  // Highlight in 3D scene
+  window._vizMarkers.forEach(function(m){if(m.userData.id===deviceId)highlightVizMarker(m);});
+}
+
+function selectVizDev(ud){if(!ud.clickable)return; window._vizSel=ud; renderVizDetail(ud); renderVizDevicePanel();}
+async function renderVizDetail(ud){
+  var body=el("vizDetailBody"); if(!body)return;
+  body.innerHTML='加载中...';
+  var dev=await apiRequest("/devices/"+ud.id);
+  if(!dev){body.innerHTML='设备不存在';return;}
+  var devThr=window._vizThr.filter(function(t){return String(t.deviceId)===String(ud.id);});
+  var sH=devThr.find(function(t){return t.thresholdType==='SMOKE_CONCENTRATION'&&t.alarmLevel==='HIGH';});
+  var sM=devThr.find(function(t){return t.thresholdType==='SMOKE_CONCENTRATION'&&t.alarmLevel==='MEDIUM';});
+  var tH=devThr.find(function(t){return t.thresholdType==='TEMPERATURE';});
+  body.innerHTML=
+    '<div style="margin-bottom:8px"><span style="color:'+(dev.status==='ONLINE'?'#22c55e':'#ef4444')+'">●</span> <strong>'+escapeHtml(dev.deviceId||ud.deviceId)+'</strong></div>'+
+    '<div style="font-size:11px;margin:2px 0"><label style="color:#94a3b8">名称</label> '+escapeHtml(dev.deviceName||'--')+'</div>'+
+    '<div style="font-size:11px;margin:2px 0"><label style="color:#94a3b8">地址</label> '+escapeHtml((dev.locationBuilding||'')+(dev.locationFloor||'')+(dev.locationRoom||''))+'</div>'+
+    '<div style="font-size:11px;margin:2px 0"><label style="color:#94a3b8">电量/信号</label> '+(dev.battery||'--')+'% / '+(dev.signalStrength||'--')+'%</div>'+
+    '<hr style="margin:8px 0"><div style="font-weight:700;font-size:12px;margin-bottom:4px">⚙️ 阈值配置</div>'+
+    '<div style="font-size:11px;margin:2px 0"><label style="color:#94a3b8">烟雾HIGH</label> <input id="vtSH" value="'+(sH?sH.thresholdMax:'0.30')+'" style="width:80px;padding:3px;border:1px solid #d1d5db;border-radius:4px;font-size:11px"></div>'+
+    '<div style="font-size:11px;margin:2px 0"><label style="color:#94a3b8">烟雾MED</label> <input id="vtSM" value="'+(sM?sM.thresholdMax:'0.15')+'" style="width:80px;padding:3px;border:1px solid #d1d5db;border-radius:4px;font-size:11px"></div>'+
+    '<div style="font-size:11px;margin:2px 0"><label style="color:#94a3b8">温度HIGH</label> <input id="vtTH" value="'+(tH?tH.thresholdMax:'65')+'" style="width:80px;padding:3px;border:1px solid #d1d5db;border-radius:4px;font-size:11px"></div>'+
+    '<button class="btn btn-main" style="width:100%;margin-top:8px;font-size:11px;padding:6px" onclick="saveVizThr('+ud.id+')">💾 保存阈值</button>';
+}
+
+async function saveVizThr(devId){
+  var sH=parseFloat(el("vtSH").value)||0.3, sM=parseFloat(el("vtSM").value)||0.15, tH=parseFloat(el("vtTH").value)||65;
+  try{
+    var old=(window._vizThr||[]).filter(function(t){return String(t.deviceId)===String(devId);});
+    for(var i=0;i<old.length;i++) await apiRequest("/thresholds/"+old[i].id,{method:"DELETE"});
+    await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"SMOKE_CONCENTRATION",thresholdMax:sH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
+    await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"SMOKE_CONCENTRATION",thresholdMax:sM,alarmLevel:"MEDIUM",status:"ENABLED",sortOrder:2})});
+    await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"TEMPERATURE",thresholdMax:tH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
+    showGlobalAlert("阈值已保存"); window.initViz();
+  }catch(e){showGlobalAlert("保存失败:"+e.message);}
+}
+
+// 设备管理页阈值
+window._devThr=[];
+async function showDevThrModal(devId,devCode){
+  var d=await apiRequest("/thresholds?page=1&pageSize=200&_t="+Date.now()); window._devThr=(d&&d.records)?d.records:[];
+  var sH=window._devThr.find(function(t){return String(t.deviceId)===String(devId)&&t.thresholdType==='SMOKE_CONCENTRATION'&&t.alarmLevel==='HIGH';});
+  var sM=window._devThr.find(function(t){return String(t.deviceId)===String(devId)&&t.thresholdType==='SMOKE_CONCENTRATION'&&t.alarmLevel==='MEDIUM';});
+  var tH=window._devThr.find(function(t){return String(t.deviceId)===String(devId)&&t.thresholdType==='TEMPERATURE';});
+  var m=el("detailModal"),t=el("detailModalTitle"),b=el("detailModalBody");
+  if(!m||!t||!b)return; t.textContent='阈值配置: '+devCode; m.classList.remove("hidden");
+  b.innerHTML='<div style="padding:12px"><div class="form-group"><label>烟雾 HIGH (mg/m³)</label><input id="dtSH" value="'+(sH?sH.thresholdMax:'0.30')+'" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0;"></div>'+
+    '<div class="form-group"><label>烟雾 MEDIUM (mg/m³)</label><input id="dtSM" value="'+(sM?sM.thresholdMax:'0.15')+'" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0;"></div>'+
+    '<div class="form-group"><label>温度 HIGH (°C)</label><input id="dtTH" value="'+(tH?tH.thresholdMax:'65')+'" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:4px 0;"></div>'+
+    '<button class="btn btn-main" style="width:100%;margin-top:10px" onclick="saveDevThr(\''+devId+'\')">保存阈值</button></div>';
+}
+async function saveDevThr(devId){
+  var sH=parseFloat(el("dtSH").value)||0.3, sM=parseFloat(el("dtSM").value)||0.15, tH=parseFloat(el("dtTH").value)||65;
+  try{
+    var old=(window._devThr||[]).filter(function(t){return String(t.deviceId)===String(devId);});
+    for(var i=0;i<old.length;i++) await apiRequest("/thresholds/"+old[i].id,{method:"DELETE"});
+    await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"SMOKE_CONCENTRATION",thresholdMax:sH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
+    await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"SMOKE_CONCENTRATION",thresholdMax:sM,alarmLevel:"MEDIUM",status:"ENABLED",sortOrder:2})});
+    await apiRequest("/thresholds",{method:"POST",body:JSON.stringify({deviceId:Number(devId),thresholdType:"TEMPERATURE",thresholdMax:tH,alarmLevel:"HIGH",status:"ENABLED",sortOrder:1})});
+    showGlobalAlert("阈值已保存"); closeDetailModal();
+  }catch(e){showGlobalAlert("保存失败:"+e.message);}
 }
 
 bootstrap();
