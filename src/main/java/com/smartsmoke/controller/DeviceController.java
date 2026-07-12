@@ -14,10 +14,15 @@ import com.smartsmoke.mapper.SensorDataMapper;
 import com.smartsmoke.service.DeviceBindingService;
 import com.smartsmoke.service.DeviceService;
 import com.smartsmoke.service.PermissionService;
+import com.smartsmoke.websocket.AlarmWebSocket;
+import cn.hutool.json.JSONUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -178,6 +183,12 @@ public class DeviceController {
         binding.setBindTime(LocalDateTime.now());
         deviceBindingService.save(binding);
 
+        // WebSocket 通知所有端
+        Map<String, Object> ws = new HashMap<>();
+        ws.put("kind", "data_changed"); ws.put("source", "admin"); ws.put("deviceId", device.getDeviceId());
+        ws.put("action", "device_created"); ws.put("ts", System.currentTimeMillis());
+        AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(ws));
+
         return Result.success(device);
     }
 
@@ -200,13 +211,26 @@ public class DeviceController {
         }
         device.setId(id);
         deviceService.updateById(device);
-        return Result.success(deviceService.getById(id));
+        SmokeDevice updated = deviceService.getById(id);
+        // WebSocket 通知所有端
+        Map<String, Object> ws = new HashMap<>();
+        ws.put("kind", "data_changed"); ws.put("source", "admin"); ws.put("deviceId", updated.getDeviceId());
+        ws.put("action", "device_updated"); ws.put("ts", System.currentTimeMillis());
+        AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(ws));
+        return Result.success(updated);
     }
 
     @DeleteMapping("/{id}")
     public Result<Void> deleteDevice(@PathVariable Long id) {
         if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权删除设备");
+        SmokeDevice dev = deviceService.getById(id);
         boolean removed = deviceService.removeById(id);
+        if (removed && dev != null) {
+            Map<String, Object> ws = new HashMap<>();
+            ws.put("kind", "data_changed"); ws.put("source", "admin"); ws.put("deviceId", dev.getDeviceId());
+            ws.put("action", "device_deleted"); ws.put("ts", System.currentTimeMillis());
+            AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(ws));
+        }
         return removed ? Result.success() : Result.error(404, "设备不存在");
     }
 
@@ -214,6 +238,11 @@ public class DeviceController {
     public Result<Void> batchDelete(@Valid @RequestBody DeviceBatchDeleteRequest request) {
         if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权批量删除设备");
         deviceService.removeByIds(request.getIds());
+        // WebSocket 通知所有端
+        Map<String, Object> ws = new HashMap<>();
+        ws.put("kind", "data_changed"); ws.put("source", "admin"); ws.put("action", "device_batch_deleted");
+        ws.put("ts", System.currentTimeMillis());
+        AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(ws));
         return Result.success();
     }
     @GetMapping("/building-tree")

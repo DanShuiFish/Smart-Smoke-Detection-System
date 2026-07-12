@@ -5,11 +5,15 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.AlertThreshold;
 import com.smartsmoke.service.AlertThresholdService;
+import com.smartsmoke.websocket.AlarmWebSocket;
+import cn.hutool.json.JSONUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/thresholds")
@@ -36,6 +40,10 @@ public class AlertThresholdController {
     @PostMapping
     public Result<AlertThreshold> create(@RequestBody AlertThreshold threshold) {
         alertThresholdService.save(threshold);
+        Map<String, Object> ws = new HashMap<>();
+        ws.put("kind", "data_changed"); ws.put("source", "admin"); ws.put("deviceId", String.valueOf(threshold.getDeviceId()));
+        ws.put("action", "threshold_updated"); ws.put("ts", System.currentTimeMillis());
+        AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(ws));
         return Result.success(threshold);
     }
 
@@ -64,7 +72,14 @@ public class AlertThresholdController {
     // 10.5 删除阈值（逻辑删除）
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
+        AlertThreshold t = alertThresholdService.getById(id);
         alertThresholdService.removeById(id);
+        if (t != null) {
+            Map<String, Object> ws = new HashMap<>();
+            ws.put("kind", "data_changed"); ws.put("source", "admin"); ws.put("deviceId", String.valueOf(t.getDeviceId()));
+            ws.put("action", "threshold_updated"); ws.put("ts", System.currentTimeMillis());
+            AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(ws));
+        }
         return Result.success();
     }
 }
