@@ -101,6 +101,21 @@ public class AlarmWebSocket {
     }
 
     /**
+     * 向所有已连接的客户端广播消息（不分角色/地址）
+     */
+    public static void broadcastAll(String message) {
+        for (Session session : SESSION_USER.keySet()) {
+            if (session.isOpen()) {
+                try {
+                    session.getBasicRemote().sendText(message);
+                } catch (Exception e) {
+                    log.error("broadcastAll 发送失败: {}", e.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
      * 按设备归属推送告警：管理员全收，居民按地址匹配 + DeviceBinding 双通道接收。
      */
     public static void broadcastByDevice(Long deviceId, String msg) {
