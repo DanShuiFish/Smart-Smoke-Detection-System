@@ -419,6 +419,30 @@ input, select, .btn { border-radius: 12px; border: 1px solid var(--line); backgr
 @media (max-width: 1200px) {
   .fp-legend { width: 100%; justify-content: center; }
 }
+/* ===== 设备可视化 (Canvas) ===== */
+.viz-layout{display:grid;grid-template-columns:200px 1fr 280px;gap:12px;height:calc(100vh - 180px)}
+.viz-sidebar{background:#fff;border-radius:12px;padding:12px;overflow-y:auto;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.viz-sidebar-header{font-weight:700;font-size:13px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;margin-bottom:8px}
+.viz-building-item{padding:8px 10px;cursor:pointer;border-radius:8px;margin:2px 0;font-size:12px;transition:all .15s}
+.viz-building-item:hover{background:#f1f5f9}
+.viz-building-item.active{background:#eff6ff;border:1px solid #bfdbfe;font-weight:700;color:#2563eb}
+.viz-building-item .count{font-size:10px;color:#94a3b8;float:right}
+.viz-main{background:#fff;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.viz-stats-bar{display:flex;gap:12px;padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:11px;flex-wrap:wrap}
+.viz-stat{display:flex;align-items:center;gap:4px}
+.viz-stat-dot{width:8px;height:8px;border-radius:50%}
+.viz-stat-dot.online{background:#22c55e}
+.viz-stat-dot.offline{background:#ef4444}
+.viz-floor-tabs{display:flex;gap:2px;padding:4px 10px;border-bottom:1px solid #e2e8f0;flex-wrap:wrap}
+.viz-floor-tab{padding:5px 12px;cursor:pointer;border-radius:6px 6px 0 0;font-size:11px;font-weight:600;transition:all .15s;border:1px solid transparent;border-bottom:none}
+.viz-floor-tab:hover{background:#f1f5f9}
+.viz-floor-tab.active{background:#eff6ff;border-color:#bfdbfe;color:#2563eb}
+.viz-detail{background:#fff;border-radius:12px;padding:12px;overflow-y:auto;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.viz-detail-header{font-weight:700;font-size:13px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;margin-bottom:8px}
+.viz-detail-body{font-size:12px}
+.viz-detail-placeholder{color:#94a3b8;text-align:center;padding:20px 0}
+.viz-detail-field label{font-size:10px;color:#94a3b8;display:block}
+.viz-empty{display:none}
 
 
 

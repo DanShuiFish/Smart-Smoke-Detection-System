@@ -194,8 +194,8 @@ public class SimulationController {
     @PostMapping("/heartbeat")
     public Result<Map<String, Object>> heartbeat(@RequestBody Map<String, Object> body) {
         String code = str(body, "deviceCode");
-        Integer bat = (Integer) body.getOrDefault("bat", 90);
-        Integer rssi = (Integer) body.getOrDefault("rssi", -40);
+        int bat = (int) dbl(body, "bat", 90);
+        int rssi = (int) dbl(body, "rssi", -40);
         if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
 
         SmokeDevice dev = resolveDevice(code);

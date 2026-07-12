@@ -1,89 +1,80 @@
-# Task 2: JS — 状态管理、格式化函数和数据加载
+### Task 2: Bug 修复 — 居民端 WebSocket 消息处理
 
-## 目标
+**Files:**
+- Modify: `src/main/resources/static/user/user.js:242-268`
 
-在 `dashboard-enhanced.js` 中添加 AI 视觉复核所需的状态变量、格式化辅助函数和数据加载函数。
+- [ ] **Step 1: 修复 `connectWebSocket()` 的消息分发逻辑**
 
-## 改动文件
-
-- Modify: `src/main/resources/static/fe2/dashboard-enhanced.js`
-
-## 项目约定
-
-- 变量命名风格: camelCase，现有代码使用 `var` 和 `function` 声明
-- API 调用统一使用已有的 `apiRequest(path, options)` 封装函数
-- 分页数据统一使用已有的 `normalizePageResult(payload, fallbackPage, fallbackPageSize)` 函数
-- 文本安全处理使用已有的 `safeText(value, fallback)` 和 `escapeHtml(value)` 函数
-- DOM 快捷获取使用已有的 `el(id)` 函数
-- 空状态渲染使用已有的 `renderEmptyState(node, title, desc)` 函数
-- 全局提示使用已有的 `showGlobalAlert(text)` 函数
-
-## 具体步骤
-
-### Step 1: 在 `state` 对象中添加复核页面状态
-
-找到 `state` 对象定义（在 `bindingsPage` 字段之后），添加:
-```javascript
-reviewsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
-```
-
-### Step 2: 添加 AI 复核格式化辅助函数
-
-在 `alarmLevelClass()` 函数之后添加以下四个辅助函数：
+找到 `connectWebSocket` 函数 (L242-268)，将 `socket.onmessage` 替换为:
 
 ```javascript
-function formatReviewResult(result) {
-  var s = String(result || "").toUpperCase();
-  if (s === "FIRE_CONFIRMED") return "AI确认火情";
-  if (s === "NO_FIRE") return "AI排除火情";
-  if (s === "UNCERTAIN") return "不确定";
-  return safeText(result, "未复核");
-}
-function formatManualReview(isManual, manualResult) {
-  if (Number(isManual) === 1) {
-    var r = String(manualResult || "").toUpperCase();
-    return r === "CONFIRMED" ? "人工确认" : (r === "DISMISSED" ? "人工驳回" : "已复核");
-  }
-  return "待复核";
-}
-function reviewResultClass(result) {
-  var s = String(result || "").toUpperCase();
-  if (s === "FIRE_CONFIRMED") return "danger";
-  if (s === "NO_FIRE") return "ok";
-  return "warn";
-}
-function manualReviewClass(isManual, manualResult) {
-  if (Number(isManual) !== 1) return "warn";
-  var r = String(manualResult || "").toUpperCase();
-  return r === "CONFIRMED" ? "ok" : "info";
-}
-```
-
-### Step 3: 添加 `loadReviewRows()` 数据加载函数
-
-在 `loadAlarmRows()` 函数之后添加：
-
-```javascript
-async function loadReviewRows(page) {
-  if (!page) page = state.reviewsPage.page || 1;
-  var alarmId = safeText(el("reviewFilterAlarmId") && el("reviewFilterAlarmId").value, "").trim();
-  var deviceId = safeText(el("reviewFilterDeviceId") && el("reviewFilterDeviceId").value, "").trim();
-  var result = safeText(el("reviewFilterResult") && el("reviewFilterResult").value, "").trim();
-  var query = "?page=" + page + "&pageSize=" + state.reviewsPage.pageSize;
-  if (alarmId) query += "&alarmId=" + encodeURIComponent(alarmId);
-  if (deviceId) query += "&deviceId=" + encodeURIComponent(deviceId);
-  if (result) query += "&result=" + encodeURIComponent(result);
+socket.onmessage = (event) => {
   try {
-    var data = await apiRequest("/ai-reviews" + query);
-    state.reviewsPage = normalizePageResult(data, page, state.reviewsPage.pageSize);
-    renderReviewTable();
-    renderReviewPagination();
-  } catch (error) {
-    showGlobalAlert("AI复核记录加载失败: " + error.message);
+    const payload = JSON.parse(event.data);
+    if (payload.kind === 'broadcast') {
+      showBroadcastBanner(payload);
+    } else if (payload.kind === 'alarm_update') {
+      handleAlarmUpdate(payload);
+    } else if (payload.kind === 'device_online') {
+      showDeviceOnlineBanner(payload);
+    } else if (payload.kind === 'alarm') {
+      showRealtimeAlarmBanner(payload);
+      refreshDashboardImmediately();
+    } else if (payload.kind === 'data_changed') {
+      refreshDashboardImmediately();
+    }
+    // 未知 kind 静默忽略，不再 fallthrough
+  } catch (e) {
+    console.error('WebSocket message error:', e);
   }
+};
+```
+
+- [ ] **Step 2: 修复 `handleAlarmUpdate` — 移除多余刷新**
+
+找到 `handleAlarmUpdate` 函数 (~L227-239)，将最后两行:
+```javascript
+renderAlarms();
+renderDashboard();
+```
+替换为:
+```javascript
+renderAlarms();
+// 不再调用 renderDashboard()，避免二次弹窗
+```
+
+- [ ] **Step 3: 修复 `renderDashboard` — 移除自动弹窗逻辑**
+
+找到 `renderDashboard` 函数 (~L337-425)，移除末尾的活跃告警弹窗逻辑。找到这段代码块并删除:
+```javascript
+const activeAlarm = alarmRecords.find(a => a.alarmStatus === 'PENDING' || a.alarmStatus === 'CONFIRMING' || a.alarmStatus === 'CONFIRMED');
+if (activeAlarm) {
+  const device = deviceMap.get(String(activeAlarm.deviceId)) || {};
+  showRealtimeAlarmBanner({
+    ...device,
+    ...activeAlarm,
+    building: activeAlarm.building || device.locationBuilding,
+    floor: activeAlarm.floor || device.locationFloor,
+    room: activeAlarm.room || device.locationRoom,
+    deviceName: activeAlarm.deviceName || device.deviceName || device.deviceId,
+  });
+} else {
+  hideGlobalAlert();
+}
+```
+替换为:
+```javascript
+if (!alarmRecords.some(a => a.alarmStatus === 'PENDING' || a.alarmStatus === 'CONFIRMING' || a.alarmStatus === 'CONFIRMED')) {
+  hideGlobalAlert();
 }
 ```
 
-## 验证
+- [ ] **Step 4: Commit**
 
-在浏览器 DevTools Console 中手动调用 `loadReviewRows(1)`，确认能成功请求 `/api/v1/ai-reviews` 并返回数据（此时表格渲染会报错因为 renderReviewTable 尚未实现，这是预期的——Task 3 会实现）。
+```bash
+git add src/main/resources/static/user/user.js
+git commit -m "fix: 居民端 WebSocket 消息处理 — 修复误弹提示和双重弹窗"
+```
+
+---
+

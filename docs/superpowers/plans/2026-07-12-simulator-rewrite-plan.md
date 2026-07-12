@@ -1,3 +1,400 @@
+# 设备模拟器重写 & 三端同步 & AI 广播 — 实施计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 修复 3 个已知 Bug，重写设备模拟器为 Web 控制台，实现三端实时同步，完善 AI 自动广播流程。
+
+**Architecture:** Web 端模拟器通过 REST API + WebSocket 与后端交互，心跳由前端 JS 定时器驱动后端写入 Redis Key。所有设备/阈值写操作通过 WebSocket `data_changed` 广播，三端自动刷新。
+
+**Tech Stack:** Java 17, Spring Boot 3.2, MyBatis-Plus, Redis, MQTT (EMQX), Vanilla JS (no framework), Three.js 0.160
+
+## Global Constraints
+
+- 所有 API 路径在 `/api/v1/` 下
+- Token 存储在 `localStorage.smoke_token`，请求头 `Authorization: Bearer <token>`
+- WebSocket 端点 `/ws/alarm?token=<token>`
+- 设备状态: ONLINE / OFFLINE / ERROR / INACTIVE (String, 非枚举)
+- 告警状态流转: PENDING → CONFIRMED → RESOLVED → ARCHIVED (或任意→CLOSED)
+- 阈值类型: SMOKE_CONCENTRATION, TEMPERATURE; 告警级别: LOW, MEDIUM, HIGH, CRITICAL
+- 后端日志仅 WARN/ERROR 级别
+
+---
+
+### Task 1: Bug 修复 — 后台日志清理
+
+**Files:**
+- Modify: `src/main/resources/application.yml`
+
+- [ ] **Step 1: 修改日志级别和移除 SQL 日志**
+
+将 `com.smartsmoke` 的日志级别从 `debug` 改为 `warn`，删除 MyBatis SQL 日志实现。
+
+`application.yml` 中找到:
+```yaml
+logging:
+  level:
+    com.smartsmoke: debug
+```
+替换为:
+```yaml
+logging:
+  level:
+    com.smartsmoke: warn
+```
+
+找到 `mybatis-plus.configuration.log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl` 并删除该行（保留其他 mybatis-plus 配置不变）。
+
+- [ ] **Step 2: 验证**
+
+启动后端，确认控制台不再打印 DEBUG 日志和 SQL 语句，仅保留 WARN/ERROR 级别输出。
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/main/resources/application.yml
+git commit -m "fix: 关闭 DEBUG 日志和 MyBatis SQL 日志输出"
+```
+
+---
+
+### Task 2: Bug 修复 — 居民端 WebSocket 消息处理
+
+**Files:**
+- Modify: `src/main/resources/static/user/user.js:242-268`
+
+- [ ] **Step 1: 修复 `connectWebSocket()` 的消息分发逻辑**
+
+找到 `connectWebSocket` 函数 (L242-268)，将 `socket.onmessage` 替换为:
+
+```javascript
+socket.onmessage = (event) => {
+  try {
+    const payload = JSON.parse(event.data);
+    if (payload.kind === 'broadcast') {
+      showBroadcastBanner(payload);
+    } else if (payload.kind === 'alarm_update') {
+      handleAlarmUpdate(payload);
+    } else if (payload.kind === 'device_online') {
+      showDeviceOnlineBanner(payload);
+    } else if (payload.kind === 'alarm') {
+      showRealtimeAlarmBanner(payload);
+      refreshDashboardImmediately();
+    } else if (payload.kind === 'data_changed') {
+      refreshDashboardImmediately();
+    }
+    // 未知 kind 静默忽略，不再 fallthrough
+  } catch (e) {
+    console.error('WebSocket message error:', e);
+  }
+};
+```
+
+- [ ] **Step 2: 修复 `handleAlarmUpdate` — 移除多余刷新**
+
+找到 `handleAlarmUpdate` 函数 (~L227-239)，将最后两行:
+```javascript
+renderAlarms();
+renderDashboard();
+```
+替换为:
+```javascript
+renderAlarms();
+// 不再调用 renderDashboard()，避免二次弹窗
+```
+
+- [ ] **Step 3: 修复 `renderDashboard` — 移除自动弹窗逻辑**
+
+找到 `renderDashboard` 函数 (~L337-425)，移除末尾的活跃告警弹窗逻辑。找到这段代码块并删除:
+```javascript
+const activeAlarm = alarmRecords.find(a => a.alarmStatus === 'PENDING' || a.alarmStatus === 'CONFIRMING' || a.alarmStatus === 'CONFIRMED');
+if (activeAlarm) {
+  const device = deviceMap.get(String(activeAlarm.deviceId)) || {};
+  showRealtimeAlarmBanner({
+    ...device,
+    ...activeAlarm,
+    building: activeAlarm.building || device.locationBuilding,
+    floor: activeAlarm.floor || device.locationFloor,
+    room: activeAlarm.room || device.locationRoom,
+    deviceName: activeAlarm.deviceName || device.deviceName || device.deviceId,
+  });
+} else {
+  hideGlobalAlert();
+}
+```
+替换为:
+```javascript
+if (!alarmRecords.some(a => a.alarmStatus === 'PENDING' || a.alarmStatus === 'CONFIRMING' || a.alarmStatus === 'CONFIRMED')) {
+  hideGlobalAlert();
+}
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/main/resources/static/user/user.js
+git commit -m "fix: 居民端 WebSocket 消息处理 — 修复误弹提示和双重弹窗"
+```
+
+---
+
+### Task 3: Bug 修复 — 3D 可视化设备点击限制
+
+**Files:**
+- Modify: `src/main/resources/static/fe2/dashboard-enhanced.js`
+
+- [ ] **Step 1: 移除 `clickable` 硬编码**
+
+找到 `rebuildVizScene` 函数内创建设备球体处 (~L1839)，将:
+```javascript
+clickable: (bldName === '1栋'),
+```
+替换为:
+```javascript
+clickable: true,
+```
+
+找到 `renderVizBlds` 和 `selectVizBld` 函数，在 `selectVizBld` 中 (L1806)，`rebuildVizScene` 调用前，确保参数传入正确。确认 `rebuildVizScene` 函数签名接受 `devices` 数组，且调用处 `rebuildVizScene(devicesForFloor)` 传入正确的设备列表。
+
+- [ ] **Step 2: 验证楼栋切换时设备列表更新**
+
+在 `selectVizBld` 末尾确保: 每次选楼栋时 `renderVizDevicePanel()` 重新渲染左侧设备面板。
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/main/resources/static/fe2/dashboard-enhanced.js
+git commit -m "fix: 3D 可视化所有楼栋设备可点击，楼栋切换时设备列表更新"
+```
+
+---
+
+### Task 4: 后端 — 新增模拟器心跳 API
+
+**Files:**
+- Modify: `src/main/java/com/smartsmoke/controller/SimulationController.java`
+- Modify: `src/main/java/com/smartsmoke/mqtt/MqttConsumer.java` (提取方法引用)
+
+- [ ] **Step 1: 在 SimulationController 中新增心跳接口**
+
+在 `SimulationController.java` 末尾、helper 方法之前，新增以下方法:
+
+```java
+private final MqttConsumer mqttConsumer;  // 添加到构造函数依赖
+
+/**
+ * 模拟器心跳 — Web 端定时调用，直接触发后端心跳处理逻辑
+ */
+@PostMapping("/heartbeat")
+public Result<Map<String, Object>> heartbeat(@RequestBody Map<String, Object> body) {
+    String code = str(body, "deviceCode");
+    Integer bat = (Integer) body.getOrDefault("bat", 90);
+    Integer rssi = (Integer) body.getOrDefault("rssi", -40);
+    if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
+
+    SmokeDevice dev = resolveDevice(code);
+    // 更新设备状态为 ONLINE
+    SmokeDevice upd = new SmokeDevice();
+    upd.setId(dev.getId());
+    upd.setStatus("ONLINE");
+    upd.setLastOnlineTime(LocalDateTime.now());
+    upd.setLastHeartbeat(LocalDateTime.now());
+    upd.setBattery(bat);
+    upd.setSignalStrength(rssi);
+    deviceMapper.updateById(upd);
+
+    // 写入 Redis 心跳 Key
+    stringRedisTemplate.opsForValue().set(
+        "device:heartbeat:" + code,
+        String.valueOf(System.currentTimeMillis()),
+        dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 30,
+        TimeUnit.SECONDS
+    );
+
+    // 关闭该设备的离线告警
+    closeOfflineAlarms(dev.getId());
+
+    Map<String, Object> r = new HashMap<>();
+    r.put("deviceCode", code);
+    r.put("online", true);
+    r.put("heartbeat", true);
+    return Result.success(r);
+}
+
+private void closeOfflineAlarms(Long deviceId) {
+    List<AlarmRecord> active = alarmRecordService.lambdaQuery()
+            .eq(AlarmRecord::getDeviceId, deviceId)
+            .eq(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")
+            .in(AlarmRecord::getAlarmStatus, List.of("PENDING", "CONFIRMING", "CONFIRMED"))
+            .list();
+    for (AlarmRecord a : active) {
+        a.setAlarmStatus("CLOSED");
+        a.setRemark("设备恢复在线，自动关闭离线告警");
+        alarmRecordService.updateById(a);
+    }
+}
+```
+
+同时添加新的依赖字段:
+```java
+private final StringRedisTemplate stringRedisTemplate;
+```
+在构造函数参数中加入（`@RequiredArgsConstructor` 会自动处理）。
+
+在文件头部添加 import:
+```java
+import org.springframework.data.redis.core.StringRedisTemplate;
+import java.util.concurrent.TimeUnit;
+```
+
+- [ ] **Step 2: 新增心跳启动/停止标记接口**
+
+```java
+// 心跳状态存储（仅内存，重启后根据设备 DB 状态重新判断）
+private final Set<String> heartbeatActiveDevices = ConcurrentHashMap.newKeySet();
+
+@PostMapping("/heartbeat/start")
+public Result<Map<String, Object>> startHeartbeat(@RequestBody Map<String, Object> body) {
+    String code = str(body, "deviceCode");
+    if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
+    heartbeatActiveDevices.add(code);
+    // 恢复上线
+    SmokeDevice dev = resolveDevice(code);
+    SmokeDevice upd = new SmokeDevice();
+    upd.setId(dev.getId());
+    upd.setStatus("ONLINE");
+    upd.setLastOnlineTime(LocalDateTime.now());
+    deviceMapper.updateById(upd);
+    log.info("模拟器心跳启动: {}", code);
+    return Result.success(Map.of("deviceCode", code, "heartbeatActive", true));
+}
+
+@PostMapping("/heartbeat/stop")
+public Result<Map<String, Object>> stopHeartbeat(@RequestBody Map<String, Object> body) {
+    String code = str(body, "deviceCode");
+    if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
+    heartbeatActiveDevices.remove(code);
+    // 删除 Redis 心跳 Key，触发离线检测
+    stringRedisTemplate.delete("device:heartbeat:" + code);
+    log.info("模拟器心跳停止: {}", code);
+    return Result.success(Map.of("deviceCode", code, "heartbeatActive", false));
+}
+
+@GetMapping("/heartbeat/status")
+public Result<Map<String, Object>> heartbeatStatus(@RequestParam(defaultValue = "") String deviceCode) {
+    if (deviceCode.isEmpty()) {
+        // 返回所有设备心跳状态
+        Map<String, Boolean> all = new LinkedHashMap<>();
+        List<SmokeDevice> devices = deviceMapper.selectList(null);
+        for (SmokeDevice d : devices) {
+            all.put(d.getDeviceId(), heartbeatActiveDevices.contains(d.getDeviceId()));
+        }
+        return Result.success(Map.of("activeDevices", heartbeatActiveDevices, "deviceStatus", all));
+    }
+    return Result.success(Map.of("deviceCode", deviceCode, "active", heartbeatActiveDevices.contains(deviceCode)));
+}
+```
+
+需要添加 import:
+```java
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.LinkedHashMap;
+```
+
+- [ ] **Step 3: 新增设备模拟状态查询接口**
+
+```java
+@GetMapping("/status")
+public Result<List<Map<String, Object>>> status() {
+    List<SmokeDevice> list = deviceMapper.selectList(null);
+    List<Map<String, Object>> r = new ArrayList<>();
+    for (SmokeDevice d : list) {
+        r.add(Map.of(
+            "id", d.getId(),
+            "deviceCode", d.getDeviceId(),
+            "name", d.getDeviceName() != null ? d.getDeviceName() : d.getDeviceId(),
+            "status", d.getStatus() != null ? d.getStatus() : "OFFLINE",
+            "building", d.getLocationBuilding() != null ? d.getLocationBuilding() : "",
+            "floor", d.getLocationFloor() != null ? d.getLocationFloor() : "",
+            "room", d.getLocationRoom() != null ? d.getLocationRoom() : "",
+            "battery", d.getBattery() != null ? d.getBattery() : 0,
+            "signalStrength", d.getSignalStrength() != null ? d.getSignalStrength() : 0,
+            "heartbeatTimeout", d.getHeartbeatTimeout() != null ? d.getHeartbeatTimeout() : 30,
+            "lastHeartbeat", d.getLastHeartbeat() != null ? d.getLastHeartbeat().toString() : null,
+            "heartbeatActive", heartbeatActiveDevices.contains(d.getDeviceId())
+        ));
+    }
+    return Result.success(r);
+}
+```
+
+- [ ] **Step 4: 增加 WebSocket `data_changed` 通知方法**
+
+在 `SimulationController` 中添加私有辅助方法:
+
+```java
+private void notifyDataChanged(String deviceCode, String action) {
+    Map<String, Object> wsPayload = new HashMap<>();
+    wsPayload.put("kind", "data_changed");
+    wsPayload.put("source", "simulator");
+    wsPayload.put("deviceId", deviceCode);
+    wsPayload.put("action", action);
+    wsPayload.put("ts", System.currentTimeMillis());
+    // 广播给所有连接
+    AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(wsPayload));
+}
+```
+
+在 `AlarmWebSocket` 中添加 `broadcastAll` 静态方法（如果不存在）。
+
+在心跳 start/stop、设备在线/离线、数据发送等操作后调用 `notifyDataChanged(code, action)`。
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/main/java/com/smartsmoke/controller/SimulationController.java
+git add src/main/java/com/smartsmoke/websocket/AlarmWebSocket.java
+git commit -m "feat: 新增模拟器心跳 API、设备状态查询、data_changed WebSocket 通知"
+```
+
+---
+
+### Task 5: WebSocket 增加 `broadcastAll` 方法
+
+**Files:**
+- Modify: `src/main/java/com/smartsmoke/websocket/AlarmWebSocket.java`
+
+- [ ] **Step 1: 添加 broadcastAll 静态方法**
+
+在 `AlarmWebSocket` 类中添加:
+
+```java
+/**
+ * 向所有已连接的客户端广播消息（不分角色/地址）
+ */
+public static void broadcastAll(String message) {
+    for (Session session : SESSION_USER.keySet()) {
+        if (session.isOpen()) {
+            try {
+                session.getBasicRemote().sendText(message);
+            } catch (Exception e) {
+                log.error("broadcastAll 发送失败: {}", e.getMessage());
+            }
+        }
+    }
+}
+```
+
+确保该类有 `@Slf4j` 注解（检查类头）。
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/main/java/com/smartsmoke/websocket/AlarmWebSocket.java
+git commit -m "feat: AlarmWebSocket 新增 broadcastAll 全量广播方法"
+```
+
+---
+
 ### Task 6: 前端 — 完全重写 simulator.html
 
 **Files:**
@@ -715,3 +1112,229 @@ git commit -m "feat: 完全重写 simulator.html — 独立设备监测、心跳
 
 ---
 
+### Task 7: 设备管理页面 — 编辑弹窗集成阈值配置
+
+**Files:**
+- Modify: `src/main/resources/static/fe2/dashboard-enhanced.js`
+
+- [ ] **Step 1: 修改设备编辑弹窗，集成阈值输入**
+
+找到 `openDeviceFormModal` 函数 (~L575)，在表单中添加阈值字段。找到表单 HTML 的构建位置，在 `heartbeatTimeout` 字段之后、提交按钮之前，插入阈值区域:
+
+```javascript
+// 在 modal body 构建中添加阈值区域
+var thresholdHtml = '';
+if (mode === 'edit' && item) {
+  // 加载该设备的阈值（异步，在 openDeviceFormModal 中处理）
+}
+thresholdHtml = `
+  <div class="form-row" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+    <div class="form-group"><label>烟雾阈值 HIGH (mg/m³)</label><input id="devFormSmokeHigh" value="${thresholds.smokeHigh || '0.30'}"></div>
+    <div class="form-group"><label>烟雾阈值 MEDIUM (mg/m³)</label><input id="devFormSmokeMed" value="${thresholds.smokeMed || '0.15'}"></div>
+    <div class="form-group"><label>温度阈值 HIGH (°C)</label><input id="devFormTempHigh" value="${thresholds.tempHigh || '65'}"></div>
+  </div>`;
+```
+
+- [ ] **Step 2: 修改 `submitDeviceForm`，提交时同时保存阈值**
+
+在 `submitDeviceForm` (~L844) 的设备保存成功后，添加阈值保存逻辑:
+
+```javascript
+// 设备保存成功后:
+var devId = resp.data.id || state.editingDeviceId;
+var sH = parseFloat(document.getElementById('devFormSmokeHigh')?.value) || 0.30;
+var sM = parseFloat(document.getElementById('devFormSmokeMed')?.value) || 0.15;
+var tH = parseFloat(document.getElementById('devFormTempHigh')?.value) || 65;
+
+// 先删旧阈值，再插入新阈值
+await saveDevThrSilent(devId, sH, sM, tH);
+```
+
+新增辅助函数 `saveDevThrSilent`:
+```javascript
+async function saveDevThrSilent(devId, sH, sM, tH) {
+  // 获取旧阈值
+  var old = await apiRequest('/thresholds?page=1&pageSize=200&deviceId=' + devId);
+  var records = (old && old.records) || [];
+  for (var i = 0; i < records.length; i++) {
+    await fetch(API_BASE + '/thresholds/' + records[i].id, {method:'DELETE', headers:authHeaders()});
+  }
+  // 插入新阈值
+  await apiRequest('/thresholds', {method:'POST', body:JSON.stringify({deviceId:devId, thresholdType:'SMOKE_CONCENTRATION', thresholdMax:sH, alarmLevel:'HIGH', status:'ENABLED', sortOrder:1})});
+  await apiRequest('/thresholds', {method:'POST', body:JSON.stringify({deviceId:devId, thresholdType:'SMOKE_CONCENTRATION', thresholdMax:sM, alarmLevel:'MEDIUM', status:'ENABLED', sortOrder:2})});
+  await apiRequest('/thresholds', {method:'POST', body:JSON.stringify({deviceId:devId, thresholdType:'TEMPERATURE', thresholdMax:tH, alarmLevel:'HIGH', status:'ENABLED', sortOrder:1})});
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/main/resources/static/fe2/dashboard-enhanced.js
+git commit -m "feat: 设备编辑弹窗集成阈值配置，一键保存设备和阈值"
+```
+
+---
+
+### Task 8: 3D 可视化 — 设备点击阈值编辑
+
+**Files:**
+- Modify: `src/main/resources/static/fe2/dashboard-enhanced.js` (viz 相关函数)
+
+- [ ] **Step 1: 修复 `renderVizDetail` 中的阈值保存**
+
+找到 `renderVizDetail` 函数 (~L1905) 和 `saveVizThr` 函数。确保:
+1. 点击设备球体后右侧面板显示阈值输入
+2. 阈值输入框默认值从数据库加载
+3. 保存按钮正确调用阈值 API
+
+当前已有雏形，检查并修复以下问题:
+- `saveVizThr` 函数应使用 `apiRequest` 而非直接 `fetch`
+- 保存后需要重新加载全局阈值数据
+- 添加保存成功提示
+
+修改 `saveVizThr`:
+```javascript
+async function saveVizThr(devId) {
+  var sH = parseFloat(document.getElementById('vizSmokeHigh').value) || 0.30;
+  var sM = parseFloat(document.getElementById('vizSmokeMed').value) || 0.15;
+  var tH = parseFloat(document.getElementById('vizTempHigh').value) || 65;
+  
+  // 删除旧阈值
+  var resp = await apiRequest('/thresholds?page=1&pageSize=200&deviceId=' + devId);
+  var records = (resp && resp.records) || [];
+  for (var i = 0; i < records.length; i++) {
+    await fetch(API_BASE + '/thresholds/' + records[i].id, {method:'DELETE', headers:authHeaders()});
+  }
+  // 插入新阈值
+  await apiRequest('/thresholds', {method:'POST', body:JSON.stringify({deviceId:devId, thresholdType:'SMOKE_CONCENTRATION', thresholdMax:sH, alarmLevel:'HIGH', status:'ENABLED', sortOrder:1})});
+  await apiRequest('/thresholds', {method:'POST', body:JSON.stringify({deviceId:devId, thresholdType:'SMOKE_CONCENTRATION', thresholdMax:sM, alarmLevel:'MEDIUM', status:'ENABLED', sortOrder:2})});
+  await apiRequest('/thresholds', {method:'POST', body:JSON.stringify({deviceId:devId, thresholdType:'TEMPERATURE', thresholdMax:tH, alarmLevel:'HIGH', status:'ENABLED', sortOrder:1})});
+  
+  alert('阈值已保存');
+  window._vizThr = (await apiRequest('/thresholds?page=1&pageSize=200'))?.records || [];
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add src/main/resources/static/fe2/dashboard-enhanced.js
+git commit -m "fix: 3D 可视化设备阈值编辑功能完善"
+```
+
+---
+
+### Task 9: AI 自动广播完善 — 确认告警弹窗广播
+
+**Files:**
+- Modify: `src/main/java/com/smartsmoke/controller/AlarmController.java`
+- Modify: `src/main/resources/static/fe2/dashboard-enhanced.js`
+
+- [ ] **Step 1: 修改 AlarmController.confirm，响应增加 shouldBroadcast 标记**
+
+找到 `confirm` 方法。在告警状态变更成功后，检查是否需要建议广播:
+
+```java
+@PutMapping("/{id}/confirm")
+public Result<Map<String, Object>> confirm(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> body) {
+    AlarmRecord alarm = requireAlarmForUpdate(id, "PENDING", "CONFIRMING");
+    // ... existing confirm logic ...
+    
+    // 判断是否需要建议广播
+    boolean shouldBroadcast = "FIRE_RISK".equals(alarm.getAlarmType()) 
+        || "SMOKE_OVERFLOW".equals(alarm.getAlarmType())
+        || ("HIGH".equals(alarm.getAlarmLevel()) || "CRITICAL".equals(alarm.getAlarmLevel()));
+    boolean alreadyBroadcast = alarm.getIsBroadcastSent() != null && alarm.getIsBroadcastSent() == 1;
+    
+    Map<String, Object> result = new HashMap<>();
+    result.put("alarmId", alarm.getId());
+    result.put("alarmStatus", alarm.getAlarmStatus());
+    result.put("shouldBroadcast", shouldBroadcast && !alreadyBroadcast);
+    result.put("deviceId", alarm.getDeviceId());
+    
+    return Result.success(result);
+}
+```
+
+- [ ] **Step 2: 管理端前端 — confirm 后弹窗询问是否广播**
+
+在 `dashboard-enhanced.js` 中找到确认告警的处理函数。在确认成功后检查 `shouldBroadcast`:
+
+```javascript
+async function confirmAlarm(id) {
+  var resp = await apiRequest('/alarms/' + id + '/confirm', {method:'PUT'});
+  if (resp && resp.shouldBroadcast) {
+    var ok = confirm('告警已确认。\n\n检测到火情告警，是否立即向该设备所在区域发送紧急广播？');
+    if (ok) {
+      // 获取设备信息并发送广播
+      var alarm = await apiRequest('/alarms/' + id);
+      if (alarm) {
+        showBroadcastConfirmModal(alarm);
+      }
+    }
+  }
+  loadAlarmRows(state.alarmsPage.page);
+}
+
+function showBroadcastConfirmModal(alarm) {
+  // 显示广播内容编辑弹窗，预填紧急广播内容
+  var building = alarm.building || '';
+  var floor = alarm.floor || '';
+  var content = '【火警紧急通知】' + building + floor + '区域检测到火情，请立即按照疏散通道有序撤离！';
+  var area = building + (floor ? ' ' + floor : '');
+  
+  var html = '<div class="modal-mask" id="broadcastModal" onclick="if(event.target===this)this.remove()">' +
+    '<div class="modal-panel" style="width:500px">' +
+    '<h3>📢 发送紧急广播</h3>' +
+    '<div class="form-group"><label>广播区域</label><input id="bcArea" value="' + area + '"></div>' +
+    '<div class="form-group"><label>广播内容</label><textarea id="bcContent" rows="4" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px">' + content + '</textarea></div>' +
+    '<div style="display:flex;gap:8px;margin-top:10px">' +
+    '<button class="btn btn-main" onclick="sendBroadcastFromAlarm(' + alarm.id + ')">发送广播</button>' +
+    '<button class="btn" onclick="document.getElementById(\'broadcastModal\').remove()">取消</button></div>' +
+    '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/main/java/com/smartsmoke/controller/AlarmController.java
+git add src/main/resources/static/fe2/dashboard-enhanced.js
+git commit -m "feat: 确认告警时弹出广播确认弹窗，完善 AI 自动广播流程"
+```
+
+---
+
+### Task 10: 集成验证 & 端到端测试
+
+- [ ] **Step 1: 启动后端并验证所有 API**
+
+```bash
+# 启动 Spring Boot 后端
+# 验证 API:
+curl -X GET http://localhost:8080/api/v1/simulation/status
+curl -X POST http://localhost:8080/api/v1/simulation/heartbeat -H "Content-Type: application/json" -d '{"deviceCode":"SDS-001","bat":95,"rssi":-35}'
+curl -X GET "http://localhost:8080/api/v1/simulation/heartbeat/status?deviceCode=SDS-001"
+```
+
+- [ ] **Step 2: 验证三端同步**
+
+1. 打开模拟器 `http://localhost:8080/simulator.html`
+2. 打开管理端 `http://localhost:8080/fe2/dashboard-enhanced.html`
+3. 在模拟器中修改设备阈值 → 管理端 3D 页面应自动刷新
+4. 在管理端编辑设备 → 模拟器应自动刷新
+5. 触发告警 → 管理端收到告警 + AI 复核 + 自动广播
+
+- [ ] **Step 3: 验证居民端不再误弹**
+
+1. 登录居民端 `http://localhost:8080/user/index.html`
+2. 触发非本地址设备的告警 → 居民端不应弹出提示
+3. 发送广播到居民所在地址 → 居民端仅显示广播卡片
+
+- [ ] **Step 4: Commit final adjustments**
+
+```bash
+git add -A
+git commit -m "chore: 端到端验证通过，修复残余问题"
+```

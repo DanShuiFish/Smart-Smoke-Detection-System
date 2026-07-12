@@ -1,27 +1,30 @@
-# Task 4 实施报告
+# Task 4 Report: 后端 — 新增模拟器心跳 API
 
-## 改动文件
+## Status: DONE
 
-`src/main/resources/static/fe2/dashboard-enhanced.js`
+## Summary
 
-## 新增内容
+Implemented 5 new API endpoints in `SimulationController.java`:
 
-### Step 1: `async function showReviewDetail(id)`
-- **位置**: `renderReviewPagination()` 之后（第 1401-1424 行）
-- **功能**: 调用 `GET /api/v1/ai-reviews/{id}` 获取复核详情，通过 `openDetailModal()` 展示 15 个字段
-  - 复核ID, 关联告警ID, 设备ID, 摄像头ID, 复核类型, AI判定结果, 置信度, 图像路径, 处理耗时, 人工复核状态, 人工复核人ID, 人工复核结果, 备注, AI原始响应(full宽行), 创建时间
-  - 错误时调用 `showGlobalAlert()` 提示
+1. **POST /api/v1/simulation/heartbeat** — Web-based heartbeat that writes Redis `device:heartbeat:{code}` key, updates device status/fields, closes offline alarms, and broadcasts `data_changed` via WebSocket.
+2. **POST /api/v1/simulation/heartbeat/start** — Marks heartbeat as active for a device (in-memory set), sets device ONLINE.
+3. **POST /api/v1/simulation/heartbeat/stop** — Removes heartbeat active flag and deletes Redis heartbeat key to trigger offline detection.
+4. **GET /api/v1/simulation/heartbeat/status** — Queries heartbeat active state for one or all devices.
+5. **GET /api/v1/simulation/status** — Enhanced device status list (superset of existing `/devices`), adding battery, signalStrength, heartbeatTimeout, lastHeartbeat, and heartbeatActive fields.
 
-### Step 2: `async function handleManualConfirm(id, result)`
-- **位置**: `showReviewDetail()` 之后（第 1425-1439 行）
-- **功能**: 人工确认/驳回 AI 复核结果
-  - `result === "CONFIRMED"` 显示"确认"，否则显示"驳回"
-  - 通过 `confirm()` 原生弹窗二次确认
-  - 调用 `PUT /api/v1/ai-reviews/{id}/manual-confirm` 提交 `{ manualReviewResult, remark: "管理端人工确认/驳回" }`
-  - 成功后刷新复核列表和告警列表
+### New private helpers
+- `closeOfflineAlarms(Long deviceId)` — Closes PENDING/CONFIRMING/CONFIRMED DEVICE_OFFLINE alarms for a device.
+- `notifyDataChanged(String deviceCode, String action)` — Broadcasts `data_changed` via `AlarmWebSocket.broadcastAll()`.
 
-## 验证状态
-- "详情"按钮 → 弹窗展示完整 15 个字段（含 AI原始响应整行展示）
-- "确认"按钮 → 二次确认弹窗 → 提示"人工确认成功" → 刷新两表
-- "驳回"按钮 → 二次确认弹窗 → 提示"人工驳回成功" → 刷新两表
-- 已复核记录不再显示"确认"/"驳回"按钮（Task 3 的 `canManualReview` 判断）
+### Dependencies added
+- `StringRedisTemplate` — Redis key write/delete for heartbeat.
+- `MqttConsumer` — Import added for future MQTT interaction.
+- `ConcurrentHashMap.newKeySet()` — In-memory heartbeat active state tracking.
+
+### Verification
+- `AlarmWebSocket.broadcastAll()` already existed (confirmed).
+- All imports verified (StringRedisTemplate, TimeUnit, ConcurrentHashMap, LinkedHashMap).
+- `@RequiredArgsConstructor` handles constructor injection for new `final` fields.
+
+## Files Modified
+- `src/main/java/com/smartsmoke/controller/SimulationController.java`

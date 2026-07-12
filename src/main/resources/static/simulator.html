@@ -300,20 +300,7 @@ async function loadAllData() {
   var t = await api('/thresholds?page=1&pageSize=500');
   thresholds = (t && t.records) ? t.records : (Array.isArray(t) ? t : []);
   if (activeDevice) refreshThresholdInputs();
-  // Load heartbeat status
-  var hbStatus = await api('/simulation/heartbeat/status');
-  if (hbStatus && hbStatus.activeDevices) {
-    // Update heartbeatActiveDevices from server
-    if (hbStatus.activeDevices) {
-      Object.keys(heartbeatTimers).forEach(function(code) {
-        if (!hbStatus.activeDevices.includes(code)) {
-          // server doesn't know about our timer, stop it
-          clearInterval(heartbeatTimers[code]);
-          delete heartbeatTimers[code];
-        }
-      });
-    }
-  }
+  // Heartbeat status is reconciled via autoStartHeartbeats()
 }
 
 // ==================== DEVICE LIST ====================
@@ -475,19 +462,25 @@ function updateAllHbStatus() {
 
 // Auto-start heartbeat for ONLINE devices on load
 async function autoStartHeartbeats() {
-  devices.forEach(function(d) {
+  for (var i = 0; i < devices.length; i++) {
+    var d = devices[i];
     if (d.status === 'ONLINE' && !heartbeatTimers[d.deviceCode]) {
-      // Only auto-start if device is ONLINE and no timer running
+      // Register with server BEFORE starting the timer, so that the
+      // server-side heartbeatActiveDevices set includes this device.
+      await api('/simulation/heartbeat/start', {method:'POST', body:JSON.stringify({deviceCode:d.deviceCode})});
       // Default interval 10s
-      heartbeatTimers[d.deviceCode] = setInterval(async function() {
-        var bat = Math.max(0, Math.min(100, (d.battery || 90) + Math.floor(Math.random() * 5) - 2));
-        var rssi = Math.max(-90, Math.min(-20, (d.signalStrength || -40) + Math.floor(Math.random() * 6) - 3));
-        await api('/simulation/heartbeat', {method:'POST', body:JSON.stringify({deviceCode:d.deviceCode, bat:bat, rssi:rssi})});
-        if (deviceMap[d.deviceCode]) { deviceMap[d.deviceCode].lastHeartbeat = new Date().toISOString(); }
-      }, 10000);
+      (function(code) {
+        heartbeatTimers[code] = setInterval(async function() {
+          var dev = deviceMap[code];
+          var bat = Math.max(0, Math.min(100, (dev ? dev.battery || 90 : 90) + Math.floor(Math.random() * 5) - 2));
+          var rssi = Math.max(-90, Math.min(-20, (dev ? dev.signalStrength || -40 : -40) + Math.floor(Math.random() * 6) - 3));
+          await api('/simulation/heartbeat', {method:'POST', body:JSON.stringify({deviceCode:code, bat:bat, rssi:rssi})});
+          if (deviceMap[code]) { deviceMap[code].lastHeartbeat = new Date().toISOString(); }
+        }, 10000);
+      })(d.deviceCode);
       addGlobalLog('ok', d.deviceCode + ' 自动启动心跳 (ONLINE)');
     }
-  });
+  }
 }
 
 // ==================== THRESHOLDS ====================
