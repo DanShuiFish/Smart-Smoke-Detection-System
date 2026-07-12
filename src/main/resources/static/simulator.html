@@ -280,7 +280,10 @@ async function api(p, o={}) {
     var r = await fetch(API + p, {...o, headers:h});
     if (r.status === 401) { alert('登录已过期'); window.location.href = '/'; return null; }
     var b = await r.json();
-    if (b && b.code && b.code !== 200) { addGlobalLog('warn', 'API: ' + (b.msg || b.message)); return null; }
+    if (b && b.code && b.code !== 200) {
+      addGlobalLog('error', 'API ' + p + ': ' + (b.msg || b.message || b.code));
+      return null;
+    }
     return b && b.data !== undefined ? b.data : b;
   } catch(e) { addGlobalLog('error', 'Network: ' + e.message); return null; }
 }
@@ -419,17 +422,20 @@ async function sendContinuously() {
 // ==================== HEARTBEAT ====================
 async function startHeartbeat() {
   if (!activeDevice) return;
+  var code = activeDevice; // 捕获当前设备编号，防止 timer 回调时 activeDevice 已变化
   var interval = parseInt(document.getElementById('hbInterval').value) || 10;
   if (interval < 3) interval = 3;
   document.getElementById('hbInterval').value = interval;
-  await api('/simulation/heartbeat/start', {method:'POST', body:JSON.stringify({deviceCode:activeDevice})});
+  await api('/simulation/heartbeat/start', {method:'POST', body:JSON.stringify({deviceCode:code})});
+  // 清除已有的旧 timer，防止泄漏
+  if (heartbeatTimers[code]) { clearInterval(heartbeatTimers[code]); }
   // Send first heartbeat immediately
-  await sendHeartbeat();
-  // Schedule
-  heartbeatTimers[activeDevice] = setInterval(function() { sendHeartbeat(); }, interval * 1000);
+  await sendHeartbeat(code);
+  // Schedule — 使用捕获的 code 而非全局 activeDevice
+  heartbeatTimers[code] = setInterval(function() { sendHeartbeat(code); }, interval * 1000);
   refreshDevicePanel();
-  addDeviceLog(activeDevice, 'ok', '心跳已启动 (间隔' + interval + 's)');
-  addGlobalLog('ok', activeDevice + ' 心跳启动');
+  addDeviceLog(code, 'ok', '心跳已启动 (间隔' + interval + 's)');
+  addGlobalLog('ok', code + ' 心跳启动');
 }
 
 async function stopHeartbeat() {
@@ -441,17 +447,18 @@ async function stopHeartbeat() {
   addGlobalLog('warn', activeDevice + ' 心跳停止');
 }
 
-async function sendHeartbeat() {
-  if (!activeDevice) return;
-  var d = deviceMap[activeDevice];
+async function sendHeartbeat(deviceCode) {
+  var code = deviceCode || activeDevice;
+  if (!code) return;
+  var d = deviceMap[code];
   var bat = d ? (d.battery || 90) : 90;
   var rssi = d ? (d.signalStrength || -40) : -40;
   // Randomize slightly
   bat = Math.max(0, Math.min(100, bat + Math.floor(Math.random() * 5) - 2));
   rssi = Math.max(-90, Math.min(-20, rssi + Math.floor(Math.random() * 6) - 3));
-  await api('/simulation/heartbeat', {method:'POST', body:JSON.stringify({deviceCode:activeDevice, bat:bat, rssi:rssi})});
+  await api('/simulation/heartbeat', {method:'POST', body:JSON.stringify({deviceCode:code, bat:bat, rssi:rssi})});
   // Update locally
-  if (deviceMap[activeDevice]) { deviceMap[activeDevice].lastHeartbeat = new Date().toISOString(); deviceMap[activeDevice].battery = bat; deviceMap[activeDevice].signalStrength = rssi; }
+  if (deviceMap[code]) { deviceMap[code].lastHeartbeat = new Date().toISOString(); deviceMap[code].battery = bat; deviceMap[code].signalStrength = rssi; }
 }
 
 function updateAllHbStatus() {
@@ -464,21 +471,18 @@ function updateAllHbStatus() {
 async function autoStartHeartbeats() {
   for (var i = 0; i < devices.length; i++) {
     var d = devices[i];
-    if (d.status === 'ONLINE' && !heartbeatTimers[d.deviceCode]) {
+    // ONLINE 状态或服务端标记为活跃 → 自动恢复心跳
+    if ((d.status === 'ONLINE' || d.heartbeatActive) && !heartbeatTimers[d.deviceCode]) {
       // Register with server BEFORE starting the timer, so that the
       // server-side heartbeatActiveDevices set includes this device.
       await api('/simulation/heartbeat/start', {method:'POST', body:JSON.stringify({deviceCode:d.deviceCode})});
+      // 立即发送第一次心跳，刷新 Redis key TTL，防止旧 key 在 timer 触发前过期
+      await sendHeartbeat(d.deviceCode);
       // Default interval 10s
       (function(code) {
-        heartbeatTimers[code] = setInterval(async function() {
-          var dev = deviceMap[code];
-          var bat = Math.max(0, Math.min(100, (dev ? dev.battery || 90 : 90) + Math.floor(Math.random() * 5) - 2));
-          var rssi = Math.max(-90, Math.min(-20, (dev ? dev.signalStrength || -40 : -40) + Math.floor(Math.random() * 6) - 3));
-          await api('/simulation/heartbeat', {method:'POST', body:JSON.stringify({deviceCode:code, bat:bat, rssi:rssi})});
-          if (deviceMap[code]) { deviceMap[code].lastHeartbeat = new Date().toISOString(); }
-        }, 10000);
+        heartbeatTimers[code] = setInterval(function() { sendHeartbeat(code); }, 10000);
       })(d.deviceCode);
-      addGlobalLog('ok', d.deviceCode + ' 自动启动心跳 (ONLINE)');
+      addGlobalLog('ok', d.deviceCode + ' 自动启动心跳 (状态=' + d.status + ')');
     }
   }
 }
@@ -579,6 +583,9 @@ function connectWS() {
         addGlobalLog('warn', '广播: ' + (p.area||'') + ' - ' + (p.message||'').substring(0, 50));
       } else if (p.kind === 'device_online') {
         addGlobalLog('ok', (p.deviceName||p.deviceId) + ' 恢复在线');
+        loadAllData();
+      } else if (p.kind === 'device_offline') {
+        addGlobalLog('warn', (p.deviceName||p.deviceId) + ' 离线通知');
         loadAllData();
       } else if (p.alarmType === 'DEVICE_OFFLINE') {
         addGlobalLog('warn', (p.deviceName||p.deviceId) + ' 离线告警');

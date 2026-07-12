@@ -4,7 +4,9 @@ import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.SensorData;
 import com.smartsmoke.entity.SmokeDevice;
 import com.smartsmoke.entity.AlarmRecord;
+import com.smartsmoke.entity.AlertThreshold;
 import com.smartsmoke.mapper.DeviceMapper;
+import com.smartsmoke.mapper.AlertThresholdMapper;
 import com.smartsmoke.rule.AlarmRuleEngine;
 import com.smartsmoke.service.AlarmRecordService;
 import com.smartsmoke.websocket.AlarmWebSocket;
@@ -35,6 +37,7 @@ public class SimulationController {
     private final AlarmRecordService alarmRecordService;
     private final StringRedisTemplate stringRedisTemplate;
     private final MqttConsumer mqttConsumer;
+    private final AlertThresholdMapper alertThresholdMapper;
 
     // 心跳状态存储（仅内存，重启后根据设备 DB 状态重新判断）
     private final Set<String> heartbeatActiveDevices = ConcurrentHashMap.newKeySet();
@@ -212,13 +215,15 @@ public class SimulationController {
         upd.setSignalStrength(rssi);
         deviceMapper.updateById(upd);
 
-        // 写入 Redis 心跳 Key
+        // 写入 Redis 心跳 Key（TTL 至少 30 秒，防止 DB 异常值导致过早过期）
+        int ttl = Math.max(dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 30, 30);
         stringRedisTemplate.opsForValue().set(
                 "device:heartbeat:" + code,
                 String.valueOf(System.currentTimeMillis()),
-                dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 30,
+                ttl,
                 TimeUnit.SECONDS
         );
+        log.debug("Redis heartbeat key refreshed: {} TTL={}s", code, ttl);
 
         // 关闭该设备的离线告警
         closeOfflineAlarms(dev.getId());
@@ -245,7 +250,19 @@ public class SimulationController {
         upd.setStatus("ONLINE");
         upd.setLastOnlineTime(LocalDateTime.now());
         deviceMapper.updateById(upd);
+
+        // 立即设置 Redis 心跳 Key（防御：即使后续 sendHeartbeat 失败也不会误报离线）
+        int ttl = Math.max(dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 30, 30);
+        stringRedisTemplate.opsForValue().set(
+                "device:heartbeat:" + code,
+                String.valueOf(System.currentTimeMillis()),
+                ttl,
+                TimeUnit.SECONDS
+        );
+
         notifyDataChanged(code, "heartbeat_start");
+        // 推送 device_online 通知给所有客户端
+        AlarmWebSocket.broadcastDeviceOnline(code, dev.getDeviceName());
         log.info("模拟器心跳启动: {}", code);
         return Result.success(Map.of("deviceCode", code, "heartbeatActive", true));
     }
@@ -255,9 +272,21 @@ public class SimulationController {
         String code = str(body, "deviceCode");
         if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
         heartbeatActiveDevices.remove(code);
-        // 删除 Redis 心跳 Key，触发离线检测
+        // 更新设备状态为 OFFLINE
+        SmokeDevice dev = resolveDevice(code);
+        SmokeDevice upd = new SmokeDevice();
+        upd.setId(dev.getId());
+        upd.setStatus("OFFLINE");
+        upd.setLastOfflineTime(LocalDateTime.now());
+        deviceMapper.updateById(upd);
+        // 创建 DEVICE_OFFLINE 告警记录（持久化 + WebSocket 推送）
+        alarmRecordService.createOfflineAlarm(code);
+
+        // 删除 Redis 心跳 Key（避免 KeyspaceListener 重复触发）
         stringRedisTemplate.delete("device:heartbeat:" + code);
         notifyDataChanged(code, "heartbeat_stop");
+        // 推送 device_offline 通知给所有客户端
+        AlarmWebSocket.broadcastDeviceOffline(code, dev.getDeviceName());
         log.info("模拟器心跳停止: {}", code);
         return Result.success(Map.of("deviceCode", code, "heartbeatActive", false));
     }
@@ -274,6 +303,104 @@ public class SimulationController {
             return Result.success(Map.of("activeDevices", heartbeatActiveDevices, "deviceStatus", all));
         }
         return Result.success(Map.of("deviceCode", deviceCode, "active", heartbeatActiveDevices.contains(deviceCode)));
+    }
+
+    // ===== 阈值配置（供前端和模拟器使用） =====
+    @GetMapping("/device/threshold")
+    public Result<Map<String, Object>> getDeviceThreshold(@RequestParam String deviceCode) {
+        // 查找设备的个性化阈值或全局阈值
+        SmokeDevice dev = deviceMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SmokeDevice>()
+                        .eq(SmokeDevice::getDeviceId, deviceCode));
+        if (dev == null) return Result.error(404, "设备不存在");
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("deviceCode", deviceCode);
+
+        // 查询烟雾 HIGH 阈值
+        AlertThreshold smokeHigh = findThreshold(dev.getId(), "SMOKE_CONCENTRATION", "HIGH");
+        result.put("smokeHigh", smokeHigh != null ? smokeHigh.getThresholdMax() : BigDecimal.valueOf(0.30));
+        // 查询烟雾 MEDIUM 阈值
+        AlertThreshold smokeMed = findThreshold(dev.getId(), "SMOKE_CONCENTRATION", "MEDIUM");
+        result.put("smokeMedium", smokeMed != null ? smokeMed.getThresholdMax() : BigDecimal.valueOf(0.15));
+        // 查询温度 HIGH 阈值
+        AlertThreshold tempHigh = findThreshold(dev.getId(), "TEMPERATURE", "HIGH");
+        result.put("tempHigh", tempHigh != null ? tempHigh.getThresholdMax() : BigDecimal.valueOf(65));
+
+        return Result.success(result);
+    }
+
+    @PostMapping("/device/threshold")
+    public Result<Map<String, Object>> saveDeviceThreshold(@RequestBody Map<String, Object> body) {
+        String code = str(body, "deviceCode");
+        if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
+
+        SmokeDevice dev = resolveDevice(code);
+        double smokeHigh = dbl(body, "smokeHigh", 0.30);
+        double smokeMedium = dbl(body, "smokeMedium", 0.15);
+        double tempHigh = dbl(body, "tempHigh", 65);
+
+        // UPSERT 烟雾 HIGH
+        upsertThreshold(dev.getId(), "SMOKE_CONCENTRATION", "HIGH", BigDecimal.valueOf(smokeHigh));
+        // UPSERT 烟雾 MEDIUM
+        upsertThreshold(dev.getId(), "SMOKE_CONCENTRATION", "MEDIUM", BigDecimal.valueOf(smokeMedium));
+        // UPSERT 温度 HIGH
+        upsertThreshold(dev.getId(), "TEMPERATURE", "HIGH", BigDecimal.valueOf(tempHigh));
+
+        // WebSocket 通知阈值变更
+        AlarmWebSocket.broadcastDeviceConfigChanged(code, "threshold");
+        notifyDataChanged(code, "threshold_update");
+
+        log.info("阈值已更新: {} smokeH={} smokeM={} tempH={}", code, smokeHigh, smokeMedium, tempHigh);
+        return Result.success(Map.of("deviceCode", code, "saved", true));
+    }
+
+    private AlertThreshold findThreshold(Long deviceDbId, String type, String level) {
+        var list = alertThresholdMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AlertThreshold>()
+                        .eq(AlertThreshold::getDeviceId, deviceDbId)
+                        .eq(AlertThreshold::getThresholdType, type)
+                        .eq(AlertThreshold::getAlarmLevel, level)
+                        .eq(AlertThreshold::getStatus, "ENABLED")
+                        .orderByAsc(AlertThreshold::getSortOrder)
+                        .last("LIMIT 1"));
+        // 如果设备级阈值不存在，查全局阈值
+        if (list.isEmpty()) {
+            list = alertThresholdMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AlertThreshold>()
+                            .isNull(AlertThreshold::getDeviceId)
+                            .eq(AlertThreshold::getThresholdType, type)
+                            .eq(AlertThreshold::getAlarmLevel, level)
+                            .eq(AlertThreshold::getStatus, "ENABLED")
+                            .orderByAsc(AlertThreshold::getSortOrder)
+                            .last("LIMIT 1"));
+        }
+        return list.isEmpty() ? null : list.get(0);
+    }
+
+    private void upsertThreshold(Long deviceDbId, String type, String level, BigDecimal maxVal) {
+        var existing = alertThresholdMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AlertThreshold>()
+                        .eq(AlertThreshold::getDeviceId, deviceDbId)
+                        .eq(AlertThreshold::getThresholdType, type)
+                        .eq(AlertThreshold::getAlarmLevel, level)
+                        .last("LIMIT 1"));
+        if (!existing.isEmpty()) {
+            AlertThreshold t = existing.get(0);
+            t.setThresholdMax(maxVal);
+            alertThresholdMapper.updateById(t);
+        } else {
+            AlertThreshold t = new AlertThreshold();
+            t.setDeviceId(deviceDbId);
+            t.setThresholdType(type);
+            t.setAlarmLevel(level);
+            t.setThresholdMin(BigDecimal.ZERO);
+            t.setThresholdMax(maxVal);
+            t.setStatus("ENABLED");
+            t.setSortOrder(1);
+            t.setIsDefault(0);
+            alertThresholdMapper.insert(t);
+        }
     }
 
     @GetMapping("/status")

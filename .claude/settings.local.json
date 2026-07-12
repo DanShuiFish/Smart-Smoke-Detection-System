@@ -79,7 +79,8 @@
       "Bash(bash \"C:/Users/Lenovo/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" 6f52ddb cd53ed5)",
       "Bash(bash \"C:/Users/Lenovo/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" cd53ed5 6482155)",
       "Bash(bash \"C:/Users/Lenovo/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" 6482155 0df75a1)",
-      "Bash(bash \"C:/Users/Lenovo/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" 0e1ccdf 0df75a1)"
+      "Bash(bash \"C:/Users/Lenovo/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" 0e1ccdf 0df75a1)",
+      "Bash(git reset *)"
     ]
   }
 }

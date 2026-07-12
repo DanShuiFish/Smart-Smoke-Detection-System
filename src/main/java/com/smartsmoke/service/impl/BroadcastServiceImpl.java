@@ -90,8 +90,11 @@ public class BroadcastServiceImpl implements BroadcastService {
             payload = buildPayload(alarm, device, record.getBroadcastContent(),
                     record.getBroadcastType(), record.getTriggerMode(), record.getBroadcastArea());
         } else {
-            payload = "{\"cmd\":\"broadcast\",\"area\":\"" + record.getBroadcastArea()
-                    + "\",\"content\":\"" + record.getBroadcastContent() + "\"}";
+            JSONObject simplePayload = new JSONObject();
+            simplePayload.set("cmd", "broadcast");
+            simplePayload.set("area", record.getBroadcastArea());
+            simplePayload.set("content", record.getBroadcastContent());
+            payload = simplePayload.toString();
         }
         boolean sent = false;
         try { sent = mqttPublisher.sendCommand(device.getDeviceId(), payload); }
@@ -156,6 +159,60 @@ public class BroadcastServiceImpl implements BroadcastService {
             pushWebSocketNotification(record, device, alarmRecord);
         }
         return sent;
+    }
+
+    @Override
+    @Transactional
+    public int broadcastAreaByAlarm(AlarmRecord record, SmokeDevice device) {
+        if (device == null || record == null) return 0;
+        String building = device.getLocationBuilding();
+        String floor = device.getLocationFloor();
+        if (StrUtil.isBlank(building) && StrUtil.isBlank(floor)) return 0;
+
+        // 查询同楼栋+楼层的所有在线设备
+        LambdaQueryWrapper<SmokeDevice> areaQuery = new LambdaQueryWrapper<SmokeDevice>()
+                .eq(SmokeDevice::getStatus, "ONLINE");
+        if (StrUtil.isNotBlank(building)) areaQuery.eq(SmokeDevice::getLocationBuilding, building);
+        if (StrUtil.isNotBlank(floor)) areaQuery.eq(SmokeDevice::getLocationFloor, floor);
+        List<SmokeDevice> areaDevices = deviceMapper.selectList(areaQuery);
+
+        if (areaDevices.isEmpty()) {
+            log.info("区域广播: building={} floor={} 无在线设备", building, floor);
+            return 0;
+        }
+
+        String areaLabel = buildBroadcastArea(device);
+        String content = buildEmergencyContent(device);
+        int count = 0;
+        for (SmokeDevice target : areaDevices) {
+            try {
+                BroadcastRecord br = new BroadcastRecord();
+                br.setAlarmId(record.getId());
+                br.setDeviceId(target.getId());
+                br.setBroadcastArea(areaLabel);
+                br.setBroadcastContent(content);
+                br.setBroadcastType("EMERGENCY");
+                br.setTriggerMode("AUTO");
+                br.setMqttTopic(buildTopic(target.getDeviceId()));
+                br.setSendStatus("PENDING");
+                br.setRemark("area_broadcast_by_alarm:" + record.getId());
+                broadcastRecordMapper.insert(br);
+
+                String payload = buildPayload(record, target, content, "EMERGENCY", "AUTO", areaLabel);
+                boolean sent = false;
+                try { sent = mqttPublisher.sendCommand(target.getDeviceId(), payload); }
+                catch (Exception ex) { log.warn("区域广播 MQTT 发送失败: {} err={}", target.getDeviceId(), ex.getMessage()); }
+
+                fillSendResult(br, sent, sent ? null : "MQTT publish failed");
+                broadcastRecordMapper.updateById(br);
+                if (sent) pushWebSocketNotification(br, target, record);
+                count++;
+            } catch (Exception e) {
+                log.warn("区域广播设备 {} 失败: {}", target.getDeviceId(), e.getMessage());
+            }
+        }
+        log.info("区域广播完成: area={} devices={} sent={}", areaLabel, areaDevices.size(), count);
+        return count;
     }
 
     private AlarmRecord resolveTargetAlarm(Long alarmId, Long deviceId) {

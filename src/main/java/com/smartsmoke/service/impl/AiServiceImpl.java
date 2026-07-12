@@ -181,7 +181,7 @@ public class AiServiceImpl implements AiService {
         try (HttpResponse resp = HttpRequest
                 .get(openUrl)
                 .header("Authorization", "Bearer " + maxkbConfig.getApiKey())
-                .timeout(10000)
+                .timeout(maxkbConfig.getTimeout())
                 .execute()) {
 
             respBody = resp.body();

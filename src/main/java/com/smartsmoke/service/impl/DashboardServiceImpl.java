@@ -39,12 +39,15 @@ public class DashboardServiceImpl implements DashboardService {
         LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIN);
         LocalDateTime todayEnd = LocalDateTime.of(LocalDate.now(), LocalTime.MAX);
 
+        // 今日告警：排除 DEVICE_OFFLINE，与活跃告警统计口径一致
         vo.setTodayAlarms((int) alarmRecordService.count(
                 new LambdaQueryWrapper<AlarmRecord>()
-                        .between(AlarmRecord::getAlarmTime, todayStart, todayEnd)));
-        // 活跃告警 = PENDING + CONFIRMING（AI复核中），排除设备离线类型
+                        .between(AlarmRecord::getAlarmTime, todayStart, todayEnd)
+                        .ne(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")));
+        // 活跃告警 = PENDING（新产生，未经人工处理），排除设备离线
         vo.setPendingAlarms((int) alarmRecordService.count(
-                new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getAlarmStatus, "PENDING", "CONFIRMING")
+                new LambdaQueryWrapper<AlarmRecord>()
+                        .eq(AlarmRecord::getAlarmStatus, "PENDING")
                         .ne(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")));
         vo.setConfirmedAlarms((int) alarmRecordService.count(
                 new LambdaQueryWrapper<AlarmRecord>().eq(AlarmRecord::getAlarmStatus, "CONFIRMED")));
@@ -104,10 +107,11 @@ public class DashboardServiceImpl implements DashboardService {
         LocalDateTime todayEnd = LocalDateTime.of(LocalDate.now(), LocalTime.MAX);
         vo.setTodayAlarms((int) alarmRecordService.count(
                 new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getDeviceId, deviceIds)
-                        .between(AlarmRecord::getAlarmTime, todayStart, todayEnd)));
+                        .between(AlarmRecord::getAlarmTime, todayStart, todayEnd)
+                        .ne(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")));
         vo.setPendingAlarms((int) alarmRecordService.count(
                 new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getDeviceId, deviceIds)
-                        .in(AlarmRecord::getAlarmStatus, "PENDING", "CONFIRMING")
+                        .eq(AlarmRecord::getAlarmStatus, "PENDING")
                         .ne(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")));
         vo.setConfirmedAlarms((int) alarmRecordService.count(
                 new LambdaQueryWrapper<AlarmRecord>().in(AlarmRecord::getDeviceId, deviceIds)

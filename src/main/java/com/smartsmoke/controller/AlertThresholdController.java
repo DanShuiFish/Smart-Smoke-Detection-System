@@ -11,9 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/thresholds")
@@ -40,10 +38,7 @@ public class AlertThresholdController {
     @PostMapping
     public Result<AlertThreshold> create(@RequestBody AlertThreshold threshold) {
         alertThresholdService.save(threshold);
-        Map<String, Object> ws = new HashMap<>();
-        ws.put("kind", "data_changed"); ws.put("source", "admin"); ws.put("deviceId", String.valueOf(threshold.getDeviceId()));
-        ws.put("action", "threshold_updated"); ws.put("ts", System.currentTimeMillis());
-        AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(ws));
+        pushChanged(threshold);
         return Result.success(threshold);
     }
 
@@ -66,20 +61,31 @@ public class AlertThresholdController {
         if (update.getRemark() != null) uw.set(AlertThreshold::getRemark, update.getRemark());
         if (update.getSortOrder() != null) uw.set(AlertThreshold::getSortOrder, update.getSortOrder());
         alertThresholdService.update(uw);
+        pushChanged(alertThresholdService.getById(id));
         return Result.success(alertThresholdService.getById(id));
     }
 
     // 10.5 删除阈值（逻辑删除）
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        AlertThreshold t = alertThresholdService.getById(id);
+        AlertThreshold existing = alertThresholdService.getById(id);
         alertThresholdService.removeById(id);
-        if (t != null) {
-            Map<String, Object> ws = new HashMap<>();
-            ws.put("kind", "data_changed"); ws.put("source", "admin"); ws.put("deviceId", String.valueOf(t.getDeviceId()));
-            ws.put("action", "threshold_updated"); ws.put("ts", System.currentTimeMillis());
-            AlarmWebSocket.broadcastAll(JSONUtil.toJsonStr(ws));
-        }
+        pushChanged(existing);
         return Result.success();
+    }
+
+    private void pushChanged() {
+        try { AlarmWebSocket.broadcast(JSONUtil.toJsonStr(java.util.Map.of("kind", "data_changed"))); }
+        catch (Exception e) { }
+    }
+
+    private void pushChanged(AlertThreshold threshold) {
+        try {
+            AlarmWebSocket.broadcastDataChanged(null);
+            if (threshold != null && threshold.getDeviceId() != null) {
+                AlarmWebSocket.broadcastDeviceConfigChanged(String.valueOf(threshold.getDeviceId()),
+                        threshold.getThresholdType() != null ? threshold.getThresholdType() : "threshold");
+            }
+        } catch (Exception e) { }
     }
 }

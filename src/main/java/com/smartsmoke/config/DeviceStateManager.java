@@ -10,29 +10,25 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 设备状态生命周期管理器
  * <p>
- * 解决应用重启导致设备全部变为 OFFLINE 的问题：
- * 1. 启动时关闭停机期间产生的误报离线告警（不设置 Redis Key，由模拟器心跳自然创建）
- * 2. 关闭前删除所有 Redis 心跳 Key，防止停机期间 Key 过期触发 Keyspace 通知
+ * 启动时关闭停机期间产生的误报离线告警。
+ * 不主动修改设备状态或 Redis Key——设备状态由心跳自然维护。
+ * 关闭时保留所有 Redis Key，Key 自然过期即可；停机期间的过期事件因
+ * Redis pub/sub 无持久化而自动丢弃，不会误报。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class DeviceStateManager {
 
-    private static final String HEARTBEAT_KEY_PREFIX = "device:heartbeat:";
-
     private final DeviceMapper deviceMapper;
-    private final StringRedisTemplate stringRedisTemplate;
     private final AlarmRecordService alarmRecordService;
 
     /**
@@ -72,23 +68,14 @@ public class DeviceStateManager {
     }
 
     /**
-     * 应用关闭前：删除所有设备心跳 Redis Key。
-     * 防止应用已停止但 Redis Key 自然过期后触发 Keyspace 通知将设备标记为 OFFLINE。
+     * 应用关闭前：保留 Redis 心跳 Key，不删除。
+     * 删除 Key 会导致重启后设备状态与心跳不一致——Key 已消失但 DB 仍为 ONLINE。
+     * 让 Key 自然过期即可；停机期间过期事件因 pub/sub 无持久化而自动丢弃，不会误报离线。
      */
     @PreDestroy
     public void onShutdown() {
-        log.info("=== 设备状态保存：清理 Redis 心跳 Key ===");
-        try {
-            Set<String> keys = stringRedisTemplate.keys(HEARTBEAT_KEY_PREFIX + "*");
-            if (keys != null && !keys.isEmpty()) {
-                Long deleted = stringRedisTemplate.delete(keys);
-                log.info("已清理 {} 个设备心跳 Redis Key，设备 DB 状态保持不变", deleted);
-            } else {
-                log.info("无心跳 Key 需要清理");
-            }
-        } catch (Exception e) {
-            log.error("清理 Redis 心跳 Key 失败: {}", e.getMessage(), e);
-        }
+        log.info("=== 设备状态保留：Redis 心跳 Key 保持不变，设备 DB 状态不受影响 ===");
+        // no-op: 保留所有心跳 Key，尊重设备真实状态
     }
 
     /**
