@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -105,13 +104,7 @@ public class AlarmWebSocket {
      */
     public static void broadcastAll(String message) {
         for (Session session : SESSION_USER.keySet()) {
-            if (session.isOpen()) {
-                try {
-                    session.getBasicRemote().sendText(message);
-                } catch (Exception e) {
-                    log.error("broadcastAll 发送失败: {}", e.getMessage());
-                }
-            }
+            trySend(session, message);
         }
     }
 
@@ -171,11 +164,12 @@ public class AlarmWebSocket {
 
     private static void trySend(Session s, String msg) {
         if (s == null || !s.isOpen()) return;
-        try {
-            s.getBasicRemote().sendText(msg);
-        } catch (IOException e) {
-            log.error("WS send error: {}", e.getMessage());
-        }
+        s.getAsyncRemote().sendText(msg, result -> {
+            if (!result.isOK()) {
+                log.error("WS async send error: {}",
+                        result.getException() != null ? result.getException().getMessage() : "unknown");
+            }
+        });
     }
 
     /**
