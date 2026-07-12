@@ -1903,7 +1903,8 @@ function selectVizFlr(floor){
   var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
   var floors=[]; (b.floors||[]).forEach(function(f){floors.push(f.name);}); floors.sort();
   renderVizFlrTabs(floors);
-  var devs=(b.devices||[]).filter(function(d){return d.locationFloor===floor;});
+  var floorData=(b.floors||[]).find(function(f){return f.name===floor;});
+  var devs=floorData?(floorData.devices||[]):[];
   rebuildVizScene(devs,b.name);
   renderVizStats(); renderVizDevicePanel();
 }
@@ -1924,7 +1925,7 @@ function rebuildVizScene(devs,bldName){
     // Floor slab
     var slabGeo=new THREE.BoxGeometry(bldW,0.08,bldD); var slabMat=new THREE.MeshPhongMaterial({color:0x334155}); var slab=new THREE.Mesh(slabGeo,slabMat); slab.position.set(bx+bldW/2,fy,bz+bldD/2); slab.receiveShadow=true; slab.castShadow=true; window._vizScene.add(slab);
     // Glass walls
-    var wallGeo=new THREE.BoxGeometry(bldW,floorH-0.1,bldD); var wallMat=new THREE.MeshPhongMaterial({color:0x60a5fa,transparent:true,opacity:0.08,emissive:0x1e3a5f,emissiveIntensity:0.3}); var wall=new THREE.Mesh(wallGeo,wallMat); wall.position.set(bx+bldW/2,fy+floorH/2,bz+bldD/2); wall.userData={floor:i}; window._vizScene.add(wall);
+    var wallGeo=new THREE.BoxGeometry(bldW,floorH-0.1,bldD); var wallMat=new THREE.MeshPhongMaterial({color:0x60a5fa,transparent:true,opacity:0.08,emissive:0x1e3a5f,emissiveIntensity:0.3}); var wall=new THREE.Mesh(wallGeo,wallMat); wall.position.set(bx+bldW/2,fy+floorH/2,bz+bldD/2); wall.userData={floor:fi}; window._vizScene.add(wall);
     // Edge lines
     var edgeGeo=new THREE.EdgesGeometry(wallGeo); var edgeMat=new THREE.LineBasicMaterial({color:0x475569}); var edge=new THREE.LineSegments(edgeGeo,edgeMat); wall.add(edge);
     // Floor label
@@ -1954,7 +1955,12 @@ function renderVizStats(){
   var bar=el("vizStatsBar"); if(!bar)return;
   var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
   var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
-  var devs=(b.devices||[]).filter(function(d){return !window._vizFlr||d.locationFloor===window._vizFlr;});
+  var devs=[];
+  (b.floors||[]).forEach(function(f){
+    if(!window._vizFlr||f.name===window._vizFlr){
+      (f.devices||[]).forEach(function(d){devs.push(d);});
+    }
+  });
   bar.innerHTML='<span class="viz-stat"><span class="viz-stat-dot online"></span>在线:'+devs.filter(function(d){return d.status==='ONLINE';}).length+'</span> <span class="viz-stat"><span class="viz-stat-dot offline"></span>离线:'+devs.filter(function(d){return d.status==='OFFLINE';}).length+'</span> <span style="margin-left:auto">共'+devs.length+'台</span>';
 }
 
@@ -1963,7 +1969,12 @@ function renderVizDevicePanel(){
   if(!window._vizBld)return;
   var bs=(window._vizData&&window._vizData.buildings)?window._vizData.buildings:[];
   var b=bs.find(function(x){return x.name===window._vizBld;}); if(!b)return;
-  var devs=(b.devices||[]).filter(function(d){return !window._vizFlr||d.locationFloor===window._vizFlr;});
+  var devs=[];
+  (b.floors||[]).forEach(function(f){
+    if(!window._vizFlr||f.name===window._vizFlr){
+      (f.devices||[]).forEach(function(d){devs.push(d);});
+    }
+  });
   var sidebar=el("vizSidebar"); if(!sidebar)return;
   var panel=sidebar.querySelector(".viz-device-panel");
   if(!panel){panel=document.createElement("div"); panel.className="viz-device-panel"; sidebar.appendChild(panel);}
