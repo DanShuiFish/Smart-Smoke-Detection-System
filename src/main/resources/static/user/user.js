@@ -236,7 +236,7 @@
     stack.appendChild(card);
     setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 10000);
     renderAlarms();
-    renderDashboard();
+    // 不再调用 renderDashboard()，避免二次弹窗
   }
 
 function connectWebSocket() {
@@ -253,10 +253,19 @@ function connectWebSocket() {
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
-        if (payload.kind === 'broadcast') { showBroadcastBanner(payload); }
-        else if (payload.kind === 'alarm_update') { handleAlarmUpdate(payload); }
-        else if (payload.kind === 'device_online') { showDeviceOnlineBanner(payload); }
-        else { showRealtimeAlarmBanner(payload); refreshDashboardImmediately(); }
+        if (payload.kind === 'broadcast') {
+          showBroadcastBanner(payload);
+        } else if (payload.kind === 'alarm_update') {
+          handleAlarmUpdate(payload);
+        } else if (payload.kind === 'device_online') {
+          showDeviceOnlineBanner(payload);
+        } else if (payload.kind === 'alarm') {
+          showRealtimeAlarmBanner(payload);
+          refreshDashboardImmediately();
+        } else if (payload.kind === 'data_changed') {
+          refreshDashboardImmediately();
+        }
+        // 未知 kind 静默忽略，不再 fallthrough
       } catch (e) {
         console.error('WebSocket message error:', e);
       }
@@ -404,18 +413,7 @@ function connectWebSocket() {
       const alarmRecords = alarmResp.data?.records || [];
       renderRecentAlarms(alarmRecords);
 
-      const activeAlarm = alarmRecords.find(a => a.alarmStatus === 'PENDING' || a.alarmStatus === 'CONFIRMING' || a.alarmStatus === 'CONFIRMED');
-      if (activeAlarm) {
-        const device = deviceMap.get(String(activeAlarm.deviceId)) || {};
-        showRealtimeAlarmBanner({
-          ...device,
-          ...activeAlarm,
-          building: activeAlarm.building || device.locationBuilding,
-          floor: activeAlarm.floor || device.locationFloor,
-          room: activeAlarm.room || device.locationRoom,
-          deviceName: activeAlarm.deviceName || device.deviceName || device.deviceId,
-        });
-      } else {
+      if (!alarmRecords.some(a => a.alarmStatus === 'PENDING' || a.alarmStatus === 'CONFIRMING' || a.alarmStatus === 'CONFIRMED')) {
         hideGlobalAlert();
       }
 

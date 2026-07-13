@@ -393,3 +393,55 @@
   background: #fafbfc;
   opacity: 0.6;
 }
+
+/* ===== New: Device list panel in sidebar ===== */
+.viz-device-panel {
+  flex-shrink: 0;
+}
+.viz-device-panel-list::-webkit-scrollbar {
+  width: 4px;
+}
+.viz-device-panel-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 2px;
+}
+
+/* ===== New: Threshold config in detail panel ===== */
+.threshold-row-viz {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 5px 0;
+  font-size: 11px;
+}
+.threshold-row-viz label {
+  color: #64748b;
+  min-width: 52px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.threshold-row-viz input[type=range] {
+  flex: 1;
+  accent-color: #2563eb;
+  height: 4px;
+}
+.threshold-row-viz .thr-val {
+  font-size: 11px;
+  color: #059669;
+  font-weight: 700;
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ===== Broadcast tab flash ===== */
+@keyframes broadcastTabPulse {
+  0%, 100% { border-color: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,0.3); }
+  50% { border-color: #fbbf24; box-shadow: 0 0 14px rgba(245,158,11,0.6); }
+}
+
+/* ===== 3D canvas responsive ===== */
+.viz-floor-plan canvas {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}

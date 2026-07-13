@@ -8,7 +8,9 @@ import com.smartsmoke.common.PageResult;
 import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.AiReviewRecord;
 import com.smartsmoke.entity.AlarmRecord;
+import com.smartsmoke.entity.SmokeDevice;
 import com.smartsmoke.mapper.AiReviewRecordMapper;
+import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.service.AlarmRecordService;
 import com.smartsmoke.service.PermissionService;
 import com.smartsmoke.websocket.AlarmWebSocket;
@@ -23,6 +25,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -34,6 +37,7 @@ public class AlarmController {
     private final AlarmRecordService alarmRecordService;
     private final AiReviewRecordMapper aiReviewRecordMapper;
     private final PermissionService permissionService;
+    private final DeviceMapper deviceMapper;
 
     // 9.1 告警列表（分页 + 多条件筛选）
     @GetMapping
@@ -66,7 +70,9 @@ public class AlarmController {
         if (start != null) qw.ge(AlarmRecord::getAlarmTime, LocalDateTime.parse(start, DateTimeConst.FMT));
         if (end != null) qw.le(AlarmRecord::getAlarmTime, LocalDateTime.parse(end, DateTimeConst.FMT));
         qw.orderByDesc(AlarmRecord::getAlarmTime);
-        return Result.success(PageResult.of(alarmRecordService.page(new Page<>(page, pageSize), qw)));
+        PageResult<AlarmRecord> result = PageResult.of(alarmRecordService.page(new Page<>(page, pageSize), qw));
+        enrichDeviceInfo(result.getRecords());
+        return Result.success(result);
     }
 
     // 9.2 告警详情（含 AI 复核记录）
@@ -81,6 +87,7 @@ public class AlarmController {
         AiReviewRecord review = aiReviewRecordMapper.selectOne(
                 new LambdaQueryWrapper<AiReviewRecord>().eq(AiReviewRecord::getAlarmId, id));
         alarm.setAiReview(review);
+        enrichDeviceInfo(List.of(alarm));
         return Result.success(alarm);
     }
 
@@ -171,5 +178,32 @@ public class AlarmController {
         alarmRecordService.updateById(r);
         pushAlarmUpdate(r);
         return Result.success();
+    }
+
+    /**
+     * 为告警记录填充设备信息（编号、名称、楼栋/楼层/房间），供前端展示。
+     */
+    private void enrichDeviceInfo(List<AlarmRecord> records) {
+        if (records == null || records.isEmpty()) return;
+        Set<Long> deviceIds = records.stream()
+                .map(AlarmRecord::getDeviceId)
+                .filter(id -> id != null)
+                .collect(Collectors.toSet());
+        if (deviceIds.isEmpty()) return;
+
+        Map<Long, SmokeDevice> deviceMap = deviceMapper.selectBatchIds(deviceIds)
+                .stream()
+                .collect(Collectors.toMap(SmokeDevice::getId, Function.identity()));
+
+        for (AlarmRecord r : records) {
+            SmokeDevice dev = deviceMap.get(r.getDeviceId());
+            if (dev != null) {
+                r.setDeviceCode(dev.getDeviceId());       // SMOKE-001
+                r.setDeviceName(dev.getDeviceName());
+                r.setBuilding(dev.getLocationBuilding());
+                r.setFloor(dev.getLocationFloor());
+                r.setRoom(dev.getLocationRoom());
+            }
+        }
     }
 }

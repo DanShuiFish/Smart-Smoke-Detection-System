@@ -5,6 +5,7 @@ import com.smartsmoke.entity.DeviceStatusStatsVO;
 import com.smartsmoke.entity.SmokeDevice;
 import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.service.DeviceService;
+import com.smartsmoke.websocket.AlarmWebSocket;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +33,10 @@ public class DeviceServiceImpl extends ServiceImpl<DeviceMapper, SmokeDevice> im
         updateById(update);
 
         log.info("设备状态已更新为 OFFLINE: {} ({})", deviceCode, device.getDeviceName());
+
+        // 发送 WebSocket 通知
+        AlarmWebSocket.broadcastDataChanged(deviceCode);
+        AlarmWebSocket.broadcastDeviceOffline(deviceCode, device.getDeviceName());
     }
 
     @Override

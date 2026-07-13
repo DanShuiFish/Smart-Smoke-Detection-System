@@ -35,6 +35,16 @@ public class AlarmRecord {
     private Integer isDeleted;
     @TableField(exist = false)
     private AiReviewRecord aiReview;
+    @TableField(exist = false)
+    private String deviceCode;    // 设备编号（如 SMOKE-001），供前端展示
+    @TableField(exist = false)
+    private String deviceName;    // 设备名称
+    @TableField(exist = false)
+    private String building;      // 楼栋
+    @TableField(exist = false)
+    private String floor;         // 楼层
+    @TableField(exist = false)
+    private String room;          // 房间
     private String createBy;
     private LocalDateTime createTime;
     private String updateBy;

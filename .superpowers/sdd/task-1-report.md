@@ -1,28 +1,33 @@
-# Task 1 实施报告
+﻿# Task 1 Report: Bug 修复 — 关闭后台 DEBUG 和 SQL 日志
 
-## 状态: DONE
+## Changes Made
 
-## 修改内容
-1. **添加导航按钮** — 在侧边栏导航 `<nav class="sidebar-nav">` 中，于告警日志按钮（`data-view="alarms"`）之后、`</nav>` 之前，插入新按钮：
-   - `data-view="reviews"`，标题 "AI视觉复核"，图标 "视"
-   - 位置：第 26 行
+**File:** `src/main/resources/application.yml`
 
-2. **添加 AI 复核视图区域** — 在告警日志 section（`#view-alarms`）的 `</section>` 结束标签之后、`<div id="detailModal">` 之前，插入完整的 AI 视觉复核 section：
-   - `id="view-reviews"`，class="view"
-   - 包含模块标题（"AI 视觉复核"）、刷新按钮
-   - 包含筛选工具栏（按告警ID、设备ID、AI判定结果过滤）
-   - 包含数据表格（10 列：ID、告警ID、设备ID、复核类型、AI判定结果、置信度、人工复核、人工结果、创建时间、操作）
-   - 包含空表格体 `#reviewTableBody` 和分页栏 `#reviewPagination`
+1. Changed `logging.level.com.smartsmoke` from `debug` to `warn`
+2. Removed `mybatis-plus.configuration.log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl` (SQL logging)
 
-## Self-Review
-- [x] 导航按钮插入位置正确：在告警按钮后、`</nav>` 前
-- [x] 视图区域插入位置正确：在告警日志 section 后、detailModal 前
-- [x] 所有 HTML 标签均正确闭合（`<section>`，`<div>`，`<table>`，`<tbody>` 等）
-- [x] 使用了与其他 view 区域一致的 class 命名（`module-heading`, `panel`, `panel-header`, `table-wrap`, `data-table`, `pagination-bar`）
-- [x] 未修改后端 Java 代码
-- [x] 未修改 JS 或 CSS 文件
+## Verification
 
-## 测试
-- 在浏览器中打开应用（`http://localhost:8080/index.html`），登录后侧边栏应多出 "AI视觉复核" 按钮（图标 "视"）
-- 点击按钮应切换到 AI 视觉复核页面，展示筛选栏和表格（表格暂无数据）
-- 点击其它导航按钮应能正常切回对应视图
+Both changes confirmed by reading the file after edits:
+- Line 64: `com.smartsmoke: warn` -- only WARN and ERROR will appear in console
+- Lines 49-50: The `configuration` block now only has `map-underscore-to-camel-case: true` -- no more MyBatis SQL logging
+
+## Commit
+
+`722c084` - "fix: 关闭 DEBUG 日志和 MyBatis SQL 日志输出"
+
+## Fix Report
+
+**Problem:** Commit 722c084 included 5 unintended config changes beyond the task scope:
+- DB_URL default: localhost -> 10.100.42.60
+- DB_PASSWORD default: 123456 -> root
+- REDIS_HOST default: 192.168.142.128 -> 10.100.42.60
+- MQTT_BROKER_URL default: 192.168.142.128 -> 10.100.42.60
+- MAXKB_BASE_URL default: 10.120.67.60 -> 10.100.42.60
+
+**Fix applied:** Reverted all 5 IP/password defaults back to original values while preserving the 2 intended logging changes (`com.smartsmoke: warn` and removal of `log-impl`).
+
+**Status:** DONE
+**Commit SHA:** `a6b34a8`
+**What was fixed:** Reverted 5 unrelated config defaults in `src/main/resources/application.yml` (DB_URL, DB_PASSWORD, REDIS_HOST, MQTT_BROKER_URL, MAXKB_BASE_URL) to their pre-722c084 values.

@@ -1,93 +1,717 @@
-# Task 6: JS — 导航和事件绑定
+### Task 6: 前端 — 完全重写 simulator.html
 
-## 目标
+**Files:**
+- Modify: `src/main/resources/static/simulator.html` (完全重写)
 
-将所有新增的 AI 复核功能接入导航系统和事件系统，确保用户可通过侧边栏切换视图、点击按钮触发操作、回车键筛选。
+**Interfaces:**
+- Consumes: `GET /api/v1/simulation/status` — `{id, deviceCode, name, status, building, floor, room, battery, signalStrength, heartbeatTimeout, lastHeartbeat, heartbeatActive}[]`
+- Consumes: `POST /api/v1/simulation/heartbeat` — `{deviceCode, bat, rssi}` → `{deviceCode, online, heartbeat}`
+- Consumes: `POST /api/v1/simulation/heartbeat/start` — `{deviceCode}` → `{deviceCode, heartbeatActive}`
+- Consumes: `POST /api/v1/simulation/heartbeat/stop` — `{deviceCode}` → `{deviceCode, heartbeatActive}`
+- Consumes: `POST /api/v1/simulation/send` — `{deviceCode, smoke, temp, humi}` → `{deviceCode, smoke, temp, sent}`
+- Consumes: `POST /api/v1/simulation/batch` — `{devices, smoke, temp, humi}` → `[{deviceCode, smoke, temp, ok}]`
+- Consumes: `POST /api/v1/simulation/offline` — `{deviceCode}` → `{deviceCode, offline}`
+- Consumes: `POST /api/v1/simulation/online` — `{deviceCode}` → `{deviceCode, online}`
+- Consumes: `GET /api/v1/devices` — 分页设备列表
+- Consumes: `POST /api/v1/devices` / `PUT /api/v1/devices/{id}` / `DELETE /api/v1/devices/{id}` — CRUD
+- Consumes: `GET /api/v1/thresholds` / `POST /api/v1/thresholds` / `DELETE /api/v1/thresholds/{id}` — 阈值管理
+- Consumes: WebSocket `/ws/alarm` — 实时消息
 
-## 前置依赖
+- [ ] **Step 1: 写入完整的 simulator.html**
 
-Tasks 2-5 已完成。所有核心函数已存在:
-- `loadReviewRows()`, `renderReviewTable()`, `renderReviewPagination()`
-- `showReviewDetail()`, `handleManualConfirm()`
-- `showAlarmDetail()` (已重写)
-- `switchView()`, `bindEvents()`, `state`
+完全重写 `src/main/resources/static/simulator.html`，包含:
 
-## 改动文件
+**布局**: 三栏式 (左: 设备清单 300px | 中: 独立控制面板 flex-1 | 右: 全局日志 260px)
+**配色**: 深色主题 (`background: #0f172a`)
+**无外部依赖**: 所有 CSS/JS 内联
 
-- Modify: `src/main/resources/static/fe2/dashboard-enhanced.js`
+完整代码如下（见文件）:
 
-## 具体步骤
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>设备模拟器 — 智慧烟感预警系统</title>
+<style>
+/* === Reset & Base === */
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow:hidden}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:#1e293b}
+::-webkit-scrollbar-thumb{background:#475569;border-radius:3px}
 
-### Step 1: 在 `switchView()` 中添加 "reviews" 视图映射
+/* === Header === */
+.header{background:#1e293b;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;height:48px}
+.header h1{font-size:15px;font-weight:700;letter-spacing:0.5px}
+.header-right{display:flex;gap:12px;align-items:center;font-size:11px}
+.ws-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.ws-dot.on{background:#22c55e;box-shadow:0 0 6px #22c55e}
+.ws-dot.off{background:#ef4444}
 
-找到 `switchView()` 函数（约第 256 行），在其中的 `map` 对象中添加一行：
+/* === Main Layout === */
+.main{display:flex;height:calc(100vh - 76px)}
+.panel-left{width:300px;min-width:260px;background:#1e293b;border-right:1px solid #334155;display:flex;flex-direction:column}
+.panel-center{flex:1;overflow-y:auto;padding:16px;background:#0f172a}
+.panel-right{width:260px;min-width:200px;background:#1e293b;border-left:1px solid #334155;display:flex;flex-direction:column}
 
-```javascript
-reviews: ["AI 视觉复核", "查看 AI 火焰/烟雾识别结果，支持人工复核确认"],
-```
+/* === Section Headers === */
+.sec-title{font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;padding:12px 14px 8px;letter-spacing:1px;border-bottom:1px solid #334155}
 
-`map` 对象当前结构参考：
-```javascript
-var map = {
-  screen: ["首页 / 数据大屏", "设备态势、实时监测、告警联动"],
-  devices: ["设备管理", "设备状态、关键参数与运行信息"],
-  analysis: ["数据分析", "趋势分析、类型占比与楼栋分布"],
-  ai: ["AI 智能问答", "知识问答与火情研判"],
-  alarms: ["告警日志", "告警记录、确认和处置流程"],
-  // 添加在这里:
-  reviews: ["AI 视觉复核", "查看 AI 火焰/烟雾识别结果，支持人工复核确认"],
-};
-```
+/* === Device List === */
+.device-search{padding:8px 12px}
+.device-search input{width:100%;padding:7px 10px;border:1px solid #475569;border-radius:6px;background:#0f172a;color:#e2e8f0;font-size:11px;outline:none}
+.device-search input:focus{border-color:#2563eb}
+.device-toolbar{display:flex;gap:6px;padding:0 12px 8px;font-size:10px}
+.device-toolbar a{color:#64748b;cursor:pointer;text-decoration:none}
+.device-toolbar a:hover{color:#e2e8f0}
+.device-list{flex:1;overflow-y:auto}
+.device-item{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid #1e293b;cursor:pointer;gap:10px;transition:background .1s}
+.device-item:hover{background:#1e3a5f30}
+.device-item.active{background:#1e3a5f;border-left:3px solid #2563eb}
+.device-item .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.device-item .dot.on{background:#22c55e;box-shadow:0 0 6px #22c55e}
+.device-item .dot.off{background:#ef4444}
+.device-item .info{flex:1;min-width:0}
+.device-item .info .code{font-size:12px;font-weight:700}
+.device-item .info .addr{font-size:10px;color:#64748b;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.device-item .hb{font-size:9px;padding:2px 6px;border-radius:10px;flex-shrink:0}
+.device-item .hb.running{background:#05966920;color:#22c55e;border:1px solid #05966940}
+.device-item .hb.stopped{background:#47556920;color:#64748b;border:1px solid #47556940}
 
-### Step 2: 在 `switchView()` 中添加切换到复核页时自动加载数据
+/* === Buttons === */
+.btn{padding:6px 12px;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-primary{background:#2563eb;color:#fff}
+.btn-primary:hover{background:#1d4ed8}
+.btn-danger{background:#dc2626;color:#fff}
+.btn-danger:hover{background:#b91c1c}
+.btn-success{background:#059669;color:#fff}
+.btn-success:hover{background:#047857}
+.btn-warn{background:#d97706;color:#fff}
+.btn-outline{background:transparent;color:#94a3b8;border:1px solid #475569}
+.btn-outline:hover{background:#334155;color:#e2e8f0}
+.btn-sm{padding:4px 8px;font-size:10px;border-radius:4px}
 
-在 `switchView()` 函数内部的 `setTimeout(resizeVisibleCharts, 80);` 之前，添加：
+/* === Form === */
+.form-group{margin-bottom:10px}
+.form-group label{display:block;font-size:10px;color:#94a3b8;margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+.form-group input,.form-group select{width:100%;padding:7px 10px;border:1px solid #475569;border-radius:6px;background:#0f172a;color:#e2e8f0;font-size:12px}
+.form-group input:focus{border-color:#2563eb;outline:none}
+.form-row{display:flex;gap:8px}
+.form-row .form-group{flex:1}
 
-```javascript
-if (view === "reviews") { loadReviewRows(1); }
-```
+/* === Cards === */
+.card{background:#1e293b;border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid #334155}
+.card h3{font-size:12px;font-weight:700;margin-bottom:10px;color:#e2e8f0;border-bottom:1px solid #334155;padding-bottom:6px}
 
-这确保切换到 AI 复核页面时自动加载第一页数据。
+/* === Presets === */
+.presets{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px}
+.preset{padding:4px 10px;border-radius:20px;font-size:10px;cursor:pointer;border:1px solid #475569;background:#0f172a;color:#94a3b8;transition:all .1s}
+.preset:hover{border-color:#2563eb;color:#e2e8f0}
+.preset.sel{background:#2563eb;color:#fff;border-color:#2563eb}
 
-### Step 3: 在 `bindEvents()` 中添加复核页面按钮事件绑定
+/* === Slider === */
+.param-row{display:flex;align-items:center;gap:8px;margin:8px 0}
+.param-row label{font-size:10px;color:#94a3b8;min-width:40px;text-align:right}
+.param-row input[type=range]{flex:1;accent-color:#2563eb}
+.param-row .val{font-size:10px;color:#22c55e;font-weight:700;min-width:52px;text-align:right}
 
-在 `bindEvents()` 函数中（约第 1324 行），在其他按钮事件绑定附近添加以下代码块。
+/* === Threshold Row === */
+.thr-row{display:flex;align-items:center;gap:6px;margin:4px 0;font-size:10px}
+.thr-row span{color:#94a3b8;min-width:55px}
+.thr-row input{width:65px;padding:3px 6px;border:1px solid #475569;border-radius:4px;background:#0f172a;color:#e2e8f0;font-size:10px;text-align:center}
 
-需要绑定的按钮和功能:
+/* === Log Area === */
+.log-list{flex:1;overflow-y:auto;font-size:10px;font-family:'Cascadia Code','Fira Code',monospace;padding:8px}
+.log-item{padding:4px 8px;border-radius:4px;margin-bottom:2px;line-height:1.4}
+.log-ok{border-left:2px solid #22c55e;color:#22c55e}
+.log-warn{border-left:2px solid #f59e0b;color:#f59e0b}
+.log-error{border-left:2px solid #ef4444;color:#ef4444}
+.log-info{border-left:2px solid #60a5fa;color:#94a3b8}
 
-```javascript
-// ------ AI复核页面事件 ------
-var btnRefreshReviews = el("btnRefreshReviews");
-var btnSearchReviews = el("btnSearchReviews");
-var btnResetReviews = el("btnResetReviews");
-if (btnRefreshReviews) btnRefreshReviews.addEventListener("click", function() { loadReviewRows(1); });
-if (btnSearchReviews) btnSearchReviews.addEventListener("click", function() { loadReviewRows(1); });
-if (btnResetReviews) btnResetReviews.addEventListener("click", function() {
-  if (el("reviewFilterAlarmId")) el("reviewFilterAlarmId").value = "";
-  if (el("reviewFilterDeviceId")) el("reviewFilterDeviceId").value = "";
-  if (el("reviewFilterResult")) el("reviewFilterResult").value = "";
-  loadReviewRows(1);
+/* === Status Bar === */
+.statusbar{height:28px;background:#1e293b;border-top:1px solid #334155;display:flex;align-items:center;padding:0 16px;font-size:10px;color:#64748b;gap:16px}
+.statusbar span strong{color:#e2e8f0}
+
+/* === Modal === */
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:center;justify-content:center}
+.modal-panel{background:#1e293b;border-radius:12px;padding:20px;width:440px;max-height:85vh;overflow-y:auto;border:1px solid #475569}
+.modal-panel h3{font-size:13px;margin-bottom:14px}
+.hidden{display:none!important}
+
+/* === Info Grid === */
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:10px}
+.info-grid .info-item{display:flex;justify-content:space-between;padding:3px 8px;background:#0f172a;border-radius:4px}
+.info-grid .info-item .lbl{color:#64748b}
+.info-grid .info-item .v{color:#e2e8f0;font-weight:600}
+
+/* === Responsive === */
+@media(max-width:1100px){
+  .panel-right{display:none}
+  .panel-left{width:240px;min-width:200px}
+}
+@media(max-width:700px){
+  .panel-left{width:180px;min-width:150px}
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>🛰 智慧烟感 — 设备模拟器 v3.0</h1>
+  <div class="header-right">
+    <span><span id="wsDot" class="ws-dot off"></span> <span id="wsLabel">未连接</span></span>
+    <span id="clock">--:--:--</span>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- LEFT: Device List -->
+  <div class="panel-left">
+    <div class="sec-title">📡 设备清单 <button class="btn btn-primary btn-sm" onclick="openAddDevice()" style="float:right;margin-top:-2px">+</button></div>
+    <div class="device-search"><input id="devSearch" placeholder="搜索设备编号/名称..." oninput="renderDeviceList()"></div>
+    <div class="device-toolbar">
+      <a href="#" onclick="selectAll();return false">全选</a>
+      <a href="#" onclick="clearSel();return false">清除</a>
+      <span style="flex:1"></span>
+      <span>已选 <strong id="selCount">0</strong></span>
+    </div>
+    <div class="device-list" id="deviceList"><div style="text-align:center;color:#475569;padding:30px;font-size:11px">加载中...</div></div>
+  </div>
+
+  <!-- CENTER: Device Control Panel -->
+  <div class="panel-center" id="centerPanel">
+    <div id="emptyState" style="text-align:center;padding:80px 20px;color:#475569">
+      <div style="font-size:48px;margin-bottom:16px">📡</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:6px">选择一台设备开始模拟</div>
+      <div style="font-size:11px">点击左侧设备清单中的设备，查看独立控制面板</div>
+    </div>
+    <div id="devicePanel" class="hidden">
+      <!-- Device Info Card -->
+      <div class="card">
+        <h3>📋 设备信息</h3>
+        <div class="info-grid" id="devInfo"></div>
+      </div>
+      <!-- Simulation Card -->
+      <div class="card">
+        <h3>🎮 数据模拟</h3>
+        <div class="presets" id="presets">
+          <span class="preset" data-s="0.03" data-t="25" data-h="50">🟢 正常</span>
+          <span class="preset" data-s="0.18" data-t="62" data-h="30">🟡 轻度</span>
+          <span class="preset sel" data-s="0.35" data-t="68" data-h="20">🔴 火警</span>
+          <span class="preset" data-s="0.60" data-t="85" data-h="15">🚨 严重</span>
+        </div>
+        <div class="param-row"><label>烟雾</label><input type="range" id="sRange" min="0" max="100" value="35" oninput="syncSlider()"><span class="val" id="sLabel">0.35 火警</span></div>
+        <div class="param-row"><label>温度</label><input type="range" id="tRange" min="0" max="100" value="68" oninput="syncSlider()"><span class="val" id="tLabel">68°C</span></div>
+        <div class="param-row"><label>湿度</label><input type="number" id="humiVal" value="20" min="0" max="100" style="width:70px;padding:4px 8px;border:1px solid #475569;border-radius:4px;background:#0f172a;color:#e2e8f0;font-size:11px;text-align:center"></div>
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="sendCurrent()">📤 发送数据</button>
+          <button class="btn btn-danger" onclick="batchSendSelected()">📤 批量发送(<span id="batchCnt">0</span>)</button>
+          <button class="btn btn-outline" onclick="sendContinuously()" id="contBtn">🔄 连续发送</button>
+        </div>
+      </div>
+      <!-- Heartbeat Card -->
+      <div class="card">
+        <h3>💓 心跳控制</h3>
+        <div class="info-grid" id="hbInfo" style="margin-bottom:10px"></div>
+        <div class="form-row">
+          <div class="form-group"><label>心跳间隔(秒)</label><input id="hbInterval" type="number" value="10" min="3" max="60"></div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-success" id="hbStartBtn" onclick="startHeartbeat()">▶ 启动心跳</button>
+          <button class="btn btn-danger" id="hbStopBtn" onclick="stopHeartbeat()">⏹ 停止心跳</button>
+          <span style="flex:1"></span>
+          <span id="hbStatus" style="font-size:10px;color:#64748b;align-self:center"></span>
+        </div>
+      </div>
+      <!-- Threshold Card -->
+      <div class="card">
+        <h3>⚙ 阈值配置</h3>
+        <div class="thr-row"><span>烟雾 HIGH</span><input id="thrSmokeHigh" value="0.30"><span>mg/m³</span></div>
+        <div class="thr-row"><span>烟雾 MEDIUM</span><input id="thrSmokeMed" value="0.15"><span>mg/m³</span></div>
+        <div class="thr-row"><span>温度 HIGH</span><input id="thrTempHigh" value="65"><span>°C</span></div>
+        <button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="saveCurrentThresholds()">💾 保存阈值到数据库</button>
+      </div>
+      <!-- Device Log Card -->
+      <div class="card">
+        <h3>📜 设备日志 <span style="font-size:9px;color:#475569;float:right" id="devLogCount">0</span></h3>
+        <div class="log-list" id="devLog" style="max-height:200px"><div style="color:#475569;text-align:center;padding:10px">暂无日志</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Global Log -->
+  <div class="panel-right">
+    <div class="sec-title">📢 全局事件 <button class="btn btn-outline btn-sm" onclick="document.getElementById('globalLog').innerHTML='';globalLogLines=0" style="float:right;font-size:9px">清空</button></div>
+    <div class="log-list" id="globalLog" style="flex:1"><div style="color:#475569;text-align:center;padding:10px">等待事件...</div></div>
+  </div>
+</div>
+
+<!-- Status Bar -->
+<div class="statusbar">
+  <span>设备: <strong id="sbTotal">0</strong></span>
+  <span>在线: <strong id="sbOnline" style="color:#22c55e">0</strong></span>
+  <span>离线: <strong id="sbOffline" style="color:#ef4444">0</strong></span>
+  <span>最后同步: <strong id="sbSync">--:--:--</strong></span>
+  <span style="flex:1"></span>
+  <span>接硬件后删除本页面</span>
+</div>
+
+<!-- Add/Edit Device Modal -->
+<div class="modal-mask hidden" id="devModal" onclick="if(event.target===this)closeDevModal()">
+  <div class="modal-panel">
+    <h3 id="devModalTitle">新增设备</h3>
+    <div class="form-row"><div class="form-group"><label>设备编号 *</label><input id="mCode" placeholder="SMOKE-007"></div><div class="form-group"><label>设备名称</label><input id="mName" placeholder="烟雾传感器"></div></div>
+    <div class="form-row"><div class="form-group"><label>楼栋</label><input id="mBld" placeholder="1栋"></div><div class="form-group"><label>楼层</label><input id="mFlr" placeholder="3层"></div><div class="form-group"><label>房间</label><input id="mRoom" placeholder="301"></div></div>
+    <div class="form-row"><div class="form-group"><label>烟雾阈值(HIGH)</label><input id="mSH" value="0.30"></div><div class="form-group"><label>烟雾阈值(MED)</label><input id="mSM" value="0.15"></div><div class="form-group"><label>温度阈值(HIGH)</label><input id="mTH" value="65"></div></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-primary" onclick="saveDevice()">保存</button>
+      <button class="btn btn-outline" onclick="closeDevModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== STATE ====================
+const API = '/api/v1';
+var devices = [], deviceMap = {}, thresholds = [];
+var activeDevice = null;  // current device code for center panel
+var selectedSet = new Set();
+var heartbeatTimers = {}; // deviceCode -> intervalId
+var deviceLogs = {};      // deviceCode -> string[]
+var globalLogLines = 0;
+var ws = null;
+var continuousTimer = null;
+
+// ==================== INIT ====================
+async function init() {
+  if (!localStorage.getItem('smoke_token')) {
+    document.body.innerHTML = '<div style="text-align:center;padding:60px">请先<a href="/" style="color:#2563eb">登录</a></div>';
+    return;
+  }
+  await loadAllData();
+  connectWS();
+  startClock();
+  // Polling fallback: 5s
+  setInterval(loadAllData, 5000);
+  // Update heartbeat status every 1s
+  setInterval(updateAllHbStatus, 1000);
+}
+
+async function api(p, o={}) {
+  var t = localStorage.getItem('smoke_token');
+  var h = {'Content-Type':'application/json'};
+  if (t) h['Authorization'] = 'Bearer ' + t;
+  try {
+    var r = await fetch(API + p, {...o, headers:h});
+    if (r.status === 401) { alert('登录已过期'); window.location.href = '/'; return null; }
+    var b = await r.json();
+    if (b && b.code && b.code !== 200) { addGlobalLog('warn', 'API: ' + (b.msg || b.message)); return null; }
+    return b && b.data !== undefined ? b.data : b;
+  } catch(e) { addGlobalLog('error', 'Network: ' + e.message); return null; }
+}
+
+// ==================== DATA LOADING ====================
+async function loadAllData() {
+  var status = await api('/simulation/status');
+  if (status && Array.isArray(status)) {
+    devices = status;
+    deviceMap = {};
+    devices.forEach(function(d) { deviceMap[d.deviceCode] = d; });
+    renderDeviceList();
+    updateStatusBar();
+    if (activeDevice && deviceMap[activeDevice]) refreshDevicePanel();
+  }
+  // Load thresholds
+  var t = await api('/thresholds?page=1&pageSize=500');
+  thresholds = (t && t.records) ? t.records : (Array.isArray(t) ? t : []);
+  if (activeDevice) refreshThresholdInputs();
+  // Load heartbeat status
+  var hbStatus = await api('/simulation/heartbeat/status');
+  if (hbStatus && hbStatus.activeDevices) {
+    // Update heartbeatActiveDevices from server
+    if (hbStatus.activeDevices) {
+      Object.keys(heartbeatTimers).forEach(function(code) {
+        if (!hbStatus.activeDevices.includes(code)) {
+          // server doesn't know about our timer, stop it
+          clearInterval(heartbeatTimers[code]);
+          delete heartbeatTimers[code];
+        }
+      });
+    }
+  }
+}
+
+// ==================== DEVICE LIST ====================
+function renderDeviceList() {
+  var q = (document.getElementById('devSearch').value || '').toLowerCase();
+  var filtered = devices.filter(function(d) {
+    return !q || (d.deviceCode||'').toLowerCase().includes(q) || (d.name||'').toLowerCase().includes(q);
+  });
+  var el = document.getElementById('deviceList');
+  el.innerHTML = filtered.map(function(d) {
+    var isActive = activeDevice === d.deviceCode;
+    var hbRunning = !!heartbeatTimers[d.deviceCode];
+    return '<div class="device-item' + (isActive ? ' active' : '') + '" onclick="selectDevice(\'' + d.deviceCode + '\')">' +
+      '<span class="dot ' + (d.status === 'ONLINE' ? 'on' : 'off') + '"></span>' +
+      '<div class="info"><div class="code">' + esc(d.deviceCode) + '</div><div class="addr">' + esc(d.name) + ' · ' + esc(d.building||'') + esc(d.floor||'') + '</div></div>' +
+      '<span class="hb ' + (hbRunning ? 'running' : 'stopped') + '">' + (hbRunning ? '心跳中' : '') + '</span>' +
+      '</div>';
+  }).join('') || '<div style="text-align:center;color:#475569;padding:30px;font-size:11px">暂无设备 · <a href="#" onclick="openAddDevice()" style="color:#2563eb">新增</a></div>';
+  document.getElementById('selCount').textContent = selectedSet.size;
+  document.getElementById('batchCnt').textContent = selectedSet.size;
+}
+
+function selectDevice(code) {
+  // Toggle selection with Ctrl/Cmd
+  if (event.ctrlKey || event.metaKey) {
+    selectedSet.has(code) ? selectedSet.delete(code) : selectedSet.add(code);
+    renderDeviceList();
+  } else {
+    activeDevice = code;
+    selectedSet.clear();
+    refreshDevicePanel();
+    refreshThresholdInputs();
+    renderDeviceList();
+  }
+}
+
+function selectAll() { devices.forEach(function(d) { selectedSet.add(d.deviceCode); }); renderDeviceList(); }
+function clearSel() { selectedSet.clear(); renderDeviceList(); }
+
+// ==================== DEVICE PANEL ====================
+function refreshDevicePanel() {
+  document.getElementById('emptyState').classList.add('hidden');
+  document.getElementById('devicePanel').classList.remove('hidden');
+  var d = deviceMap[activeDevice];
+  if (!d) return;
+  document.getElementById('devInfo').innerHTML =
+    '<div class="info-item"><span class="lbl">编号</span><span class="v">' + esc(d.deviceCode) + '</span></div>' +
+    '<div class="info-item"><span class="lbl">名称</span><span class="v">' + esc(d.name) + '</span></div>' +
+    '<div class="info-item"><span class="lbl">状态</span><span class="v" style="color:' + (d.status==='ONLINE'?'#22c55e':'#ef4444') + '">' + esc(d.status) + '</span></div>' +
+    '<div class="info-item"><span class="lbl">位置</span><span class="v">' + esc(d.building||'') + esc(d.floor||'') + esc(d.room||'') + '</span></div>' +
+    '<div class="info-item"><span class="lbl">电量</span><span class="v">' + (d.battery||0) + '%</span></div>' +
+    '<div class="info-item"><span class="lbl">信号</span><span class="v">' + (d.signalStrength||0) + ' dBm</span></div>' +
+    '<div class="info-item"><span class="lbl">最后心跳</span><span class="v">' + (d.lastHeartbeat||'--') + '</span></div>' +
+    '<div class="info-item"><span class="lbl">心跳超时</span><span class="v">' + (d.heartbeatTimeout||30) + 's</span></div>';
+  // Heartbeat info
+  var running = !!heartbeatTimers[activeDevice];
+  document.getElementById('hbInfo').innerHTML =
+    '<div class="info-item"><span class="lbl">心跳状态</span><span class="v" style="color:' + (running ? '#22c55e' : '#ef4444') + '">' + (running ? '运行中' : '已停止') + '</span></div>' +
+    '<div class="info-item"><span class="lbl">心跳间隔</span><span class="v">' + (document.getElementById('hbInterval').value || '10') + 's</span></div>';
+  document.getElementById('hbStartBtn').style.display = running ? 'none' : '';
+  document.getElementById('hbStopBtn').style.display = running ? '' : 'none';
+  document.getElementById('hbStatus').textContent = running ? '● 每 ' + (document.getElementById('hbInterval').value||10) + 's 发送心跳' : '○ 心跳已停止';
+}
+
+function refreshThresholdInputs() {
+  var d = deviceMap[activeDevice]; if (!d) return;
+  var devThr = thresholds.filter(function(t) { return t.deviceId === d.id || t.deviceCode === activeDevice; });
+  var sH = devThr.find(function(t) { return t.thresholdType === 'SMOKE_CONCENTRATION' && t.alarmLevel === 'HIGH'; });
+  var sM = devThr.find(function(t) { return t.thresholdType === 'SMOKE_CONCENTRATION' && t.alarmLevel === 'MEDIUM'; });
+  var tH = devThr.find(function(t) { return t.thresholdType === 'TEMPERATURE'; });
+  document.getElementById('thrSmokeHigh').value = sH ? sH.thresholdMax : '0.30';
+  document.getElementById('thrSmokeMed').value = sM ? sM.thresholdMax : '0.15';
+  document.getElementById('thrTempHigh').value = tH ? tH.thresholdMax : '65';
+}
+
+// ==================== SIMULATION ====================
+function getParams() {
+  return {
+    smoke: parseFloat(document.getElementById('sRange').value) / 100,
+    temp: parseInt(document.getElementById('tRange').value),
+    humi: parseInt(document.getElementById('humiVal').value) || 50
+  };
+}
+function syncSlider() {
+  var s = (document.getElementById('sRange').value / 100).toFixed(2);
+  var t = document.getElementById('tRange').value;
+  document.getElementById('sLabel').textContent = s + (s < 0.15 ? ' 正常' : s < 0.30 ? ' 轻度' : ' 火警');
+  document.getElementById('tLabel').textContent = t + '°C';
+}
+
+async function sendCurrent() {
+  if (!activeDevice) { alert('请先选择设备'); return; }
+  var p = getParams();
+  await api('/simulation/send', {method:'POST', body:JSON.stringify({deviceCode:activeDevice, smoke:p.smoke, temp:p.temp, humi:p.humi})});
+  addDeviceLog(activeDevice, 'ok', '发送: smoke=' + p.smoke.toFixed(2) + ' temp=' + p.temp + '°C humi=' + p.humi + '%');
+  addGlobalLog(p.smoke >= 0.3 ? 'warn' : 'ok', activeDevice + ' 发送数据 smoke=' + p.smoke.toFixed(2));
+}
+
+async function batchSendSelected() {
+  if (selectedSet.size === 0) { alert('请先 Ctrl+点击 选择设备'); return; }
+  var p = getParams();
+  var devs = [];
+  selectedSet.forEach(function(c) { devs.push({deviceCode:c, smoke:p.smoke, temp:p.temp}); });
+  var r = await api('/simulation/batch', {method:'POST', body:JSON.stringify({devices:devs, smoke:p.smoke, temp:p.temp, humi:p.humi})});
+  if (r) r.forEach(function(x) { addGlobalLog(p.smoke >= 0.3 ? 'warn' : 'ok', x.deviceCode + ' 已发送 smoke=' + (x.smoke||p.smoke)); });
+}
+
+async function sendContinuously() {
+  if (continuousTimer) { clearInterval(continuousTimer); continuousTimer = null; document.getElementById('contBtn').textContent = '🔄 连续发送'; return; }
+  if (!activeDevice) { alert('请先选择设备'); return; }
+  document.getElementById('contBtn').textContent = '⏹ 停止连续';
+  continuousTimer = setInterval(function() { sendCurrent(); }, 3000);
+  addDeviceLog(activeDevice, 'info', '开始连续发送 (每3s)');
+}
+
+// ==================== HEARTBEAT ====================
+async function startHeartbeat() {
+  if (!activeDevice) return;
+  var interval = parseInt(document.getElementById('hbInterval').value) || 10;
+  if (interval < 3) interval = 3;
+  document.getElementById('hbInterval').value = interval;
+  await api('/simulation/heartbeat/start', {method:'POST', body:JSON.stringify({deviceCode:activeDevice})});
+  // Send first heartbeat immediately
+  await sendHeartbeat();
+  // Schedule
+  heartbeatTimers[activeDevice] = setInterval(function() { sendHeartbeat(); }, interval * 1000);
+  refreshDevicePanel();
+  addDeviceLog(activeDevice, 'ok', '心跳已启动 (间隔' + interval + 's)');
+  addGlobalLog('ok', activeDevice + ' 心跳启动');
+}
+
+async function stopHeartbeat() {
+  if (!activeDevice) return;
+  if (heartbeatTimers[activeDevice]) { clearInterval(heartbeatTimers[activeDevice]); delete heartbeatTimers[activeDevice]; }
+  await api('/simulation/heartbeat/stop', {method:'POST', body:JSON.stringify({deviceCode:activeDevice})});
+  refreshDevicePanel();
+  addDeviceLog(activeDevice, 'warn', '心跳已停止');
+  addGlobalLog('warn', activeDevice + ' 心跳停止');
+}
+
+async function sendHeartbeat() {
+  if (!activeDevice) return;
+  var d = deviceMap[activeDevice];
+  var bat = d ? (d.battery || 90) : 90;
+  var rssi = d ? (d.signalStrength || -40) : -40;
+  // Randomize slightly
+  bat = Math.max(0, Math.min(100, bat + Math.floor(Math.random() * 5) - 2));
+  rssi = Math.max(-90, Math.min(-20, rssi + Math.floor(Math.random() * 6) - 3));
+  await api('/simulation/heartbeat', {method:'POST', body:JSON.stringify({deviceCode:activeDevice, bat:bat, rssi:rssi})});
+  // Update locally
+  if (deviceMap[activeDevice]) { deviceMap[activeDevice].lastHeartbeat = new Date().toISOString(); deviceMap[activeDevice].battery = bat; deviceMap[activeDevice].signalStrength = rssi; }
+}
+
+function updateAllHbStatus() {
+  if (!activeDevice) return;
+  var running = !!heartbeatTimers[activeDevice];
+  document.getElementById('hbStatus').textContent = running ? '● 每 ' + (document.getElementById('hbInterval').value||10) + 's 发送心跳' : '○ 心跳已停止';
+}
+
+// Auto-start heartbeat for ONLINE devices on load
+async function autoStartHeartbeats() {
+  devices.forEach(function(d) {
+    if (d.status === 'ONLINE' && !heartbeatTimers[d.deviceCode]) {
+      // Only auto-start if device is ONLINE and no timer running
+      // Default interval 10s
+      heartbeatTimers[d.deviceCode] = setInterval(async function() {
+        var bat = Math.max(0, Math.min(100, (d.battery || 90) + Math.floor(Math.random() * 5) - 2));
+        var rssi = Math.max(-90, Math.min(-20, (d.signalStrength || -40) + Math.floor(Math.random() * 6) - 3));
+        await api('/simulation/heartbeat', {method:'POST', body:JSON.stringify({deviceCode:d.deviceCode, bat:bat, rssi:rssi})});
+        if (deviceMap[d.deviceCode]) { deviceMap[d.deviceCode].lastHeartbeat = new Date().toISOString(); }
+      }, 10000);
+      addGlobalLog('ok', d.deviceCode + ' 自动启动心跳 (ONLINE)');
+    }
+  });
+}
+
+// ==================== THRESHOLDS ====================
+async function saveCurrentThresholds() {
+  if (!activeDevice) return;
+  var d = deviceMap[activeDevice]; if (!d) return;
+  var sH = parseFloat(document.getElementById('thrSmokeHigh').value) || 0.30;
+  var sM = parseFloat(document.getElementById('thrSmokeMed').value) || 0.15;
+  var tH = parseFloat(document.getElementById('thrTempHigh').value) || 65;
+  // Remove old thresholds for this device
+  var old = thresholds.filter(function(t) { return t.deviceId === d.id || t.deviceCode === activeDevice; });
+  for (var i = 0; i < old.length; i++) {
+    await api('/thresholds/' + old[i].id, {method:'DELETE'});
+  }
+  // Insert new
+  await api('/thresholds', {method:'POST', body:JSON.stringify({deviceId:d.id, thresholdType:'SMOKE_CONCENTRATION', thresholdMax:sH, alarmLevel:'HIGH', status:'ENABLED', sortOrder:1})});
+  await api('/thresholds', {method:'POST', body:JSON.stringify({deviceId:d.id, thresholdType:'SMOKE_CONCENTRATION', thresholdMax:sM, alarmLevel:'MEDIUM', status:'ENABLED', sortOrder:2})});
+  await api('/thresholds', {method:'POST', body:JSON.stringify({deviceId:d.id, thresholdType:'TEMPERATURE', thresholdMax:tH, alarmLevel:'HIGH', status:'ENABLED', sortOrder:1})});
+  // Reload thresholds
+  await loadAllData();
+  addDeviceLog(activeDevice, 'ok', '阈值已保存: SMOKE_H=' + sH + ' SMOKE_M=' + sM + ' TEMP_H=' + tH);
+  addGlobalLog('ok', activeDevice + ' 阈值已更新');
+}
+
+// ==================== DEVICE CRUD ====================
+function openAddDevice() {
+  document.getElementById('devModalTitle').textContent = '新增设备';
+  ['mCode','mName','mBld','mFlr','mRoom'].forEach(function(id) { document.getElementById(id).value = ''; });
+  document.getElementById('mSH').value = '0.30';
+  document.getElementById('mSM').value = '0.15';
+  document.getElementById('mTH').value = '65';
+  document.getElementById('devModal').classList.remove('hidden');
+}
+function closeDevModal() { document.getElementById('devModal').classList.add('hidden'); }
+
+async function saveDevice() {
+  var code = document.getElementById('mCode').value.trim();
+  if (!code) { alert('设备编号必填'); return; }
+  var payload = {
+    deviceId: code,
+    deviceName: document.getElementById('mName').value.trim() || code,
+    locationBuilding: document.getElementById('mBld').value.trim(),
+    locationFloor: document.getElementById('mFlr').value.trim(),
+    locationRoom: document.getElementById('mRoom').value.trim(),
+    status: 'ONLINE',
+    battery: 100,
+    signalStrength: 90,
+    heartbeatTimeout: 30
+  };
+  var exist = devices.find(function(d) { return d.deviceCode === code; });
+  if (exist) {
+    await api('/devices/' + exist.id, {method:'PUT', body:JSON.stringify(payload)});
+  } else {
+    await api('/devices', {method:'POST', body:JSON.stringify(payload)});
+  }
+  // Save thresholds
+  var sH = parseFloat(document.getElementById('mSH').value) || 0.30;
+  var sM = parseFloat(document.getElementById('mSM').value) || 0.15;
+  var tH = parseFloat(document.getElementById('mTH').value) || 65;
+  var dev = exist || (await api('/simulation/status')).find(function(x) { return x.deviceCode === code; });
+  if (dev) {
+    var oldThr = thresholds.filter(function(t) { return t.deviceId === dev.id; });
+    for (var i = 0; i < oldThr.length; i++) { await api('/thresholds/' + oldThr[i].id, {method:'DELETE'}); }
+    await api('/thresholds', {method:'POST', body:JSON.stringify({deviceId:dev.id, thresholdType:'SMOKE_CONCENTRATION', thresholdMax:sH, alarmLevel:'HIGH', status:'ENABLED', sortOrder:1})});
+    await api('/thresholds', {method:'POST', body:JSON.stringify({deviceId:dev.id, thresholdType:'SMOKE_CONCENTRATION', thresholdMax:sM, alarmLevel:'MEDIUM', status:'ENABLED', sortOrder:2})});
+    await api('/thresholds', {method:'POST', body:JSON.stringify({deviceId:dev.id, thresholdType:'TEMPERATURE', thresholdMax:tH, alarmLevel:'HIGH', status:'ENABLED', sortOrder:1})});
+  }
+  closeDevModal();
+  await loadAllData();
+  addGlobalLog('ok', '设备 ' + code + ' 已保存');
+}
+
+// ==================== WEBSOCKET ====================
+function connectWS() {
+  var token = localStorage.getItem('smoke_token');
+  if (!token) return;
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/alarm?token=' + encodeURIComponent(token));
+  ws.onopen = function() {
+    document.getElementById('wsDot').className = 'ws-dot on';
+    document.getElementById('wsLabel').textContent = '已连接';
+    addGlobalLog('ok', 'WebSocket 已连接');
+  };
+  ws.onclose = function() {
+    document.getElementById('wsDot').className = 'ws-dot off';
+    document.getElementById('wsLabel').textContent = '断开';
+    addGlobalLog('warn', 'WebSocket 断开, 5s 后重连');
+    setTimeout(connectWS, 5000);
+  };
+  ws.onmessage = function(e) {
+    try {
+      var p = JSON.parse(e.data);
+      if (p.kind === 'data_changed') {
+        loadAllData();
+        addGlobalLog('info', '数据变更 [' + (p.source||'') + '] ' + (p.deviceId||'') + ' ' + (p.action||''));
+      } else if (p.kind === 'broadcast') {
+        addGlobalLog('warn', '广播: ' + (p.area||'') + ' - ' + (p.message||'').substring(0, 50));
+      } else if (p.kind === 'device_online') {
+        addGlobalLog('ok', (p.deviceName||p.deviceId) + ' 恢复在线');
+        loadAllData();
+      } else if (p.alarmType === 'DEVICE_OFFLINE') {
+        addGlobalLog('warn', (p.deviceName||p.deviceId) + ' 离线告警');
+        loadAllData();
+      } else if (p.kind === 'alarm') {
+        addGlobalLog('warn', '告警: ' + (p.deviceName||p.deviceId) + ' ' + (p.alarmType||''));
+        loadAllData();
+      }
+    } catch(err) {}
+  };
+}
+
+// ==================== LOGGING ====================
+function addDeviceLog(code, type, msg) {
+  if (!deviceLogs[code]) deviceLogs[code] = [];
+  deviceLogs[code].unshift({type:type, msg:msg, time:new Date().toLocaleTimeString('zh-CN')});
+  if (deviceLogs[code].length > 200) deviceLogs[code].pop();
+  if (activeDevice === code) renderDeviceLog();
+}
+
+function renderDeviceLog() {
+  var logs = deviceLogs[activeDevice] || [];
+  var el = document.getElementById('devLog');
+  el.innerHTML = logs.slice(0, 50).map(function(l) {
+    return '<div class="log-item log-' + l.type + '">[' + l.time + '] ' + esc(l.msg) + '</div>';
+  }).join('') || '<div style="color:#475569;text-align:center;padding:10px">暂无日志</div>';
+  document.getElementById('devLogCount').textContent = logs.length;
+}
+
+function addGlobalLog(type, msg) {
+  var el = document.getElementById('globalLog');
+  var time = new Date().toLocaleTimeString('zh-CN');
+  el.innerHTML = '<div class="log-item log-' + type + '">[' + time + '] ' + esc(msg) + '</div>' + el.innerHTML;
+  globalLogLines++;
+  if (globalLogLines > 200) { el.removeChild(el.lastChild); globalLogLines--; }
+}
+
+// ==================== UTILS ====================
+function esc(s) {
+  if (!s) return '';
+  var d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+function updateStatusBar() {
+  var total = devices.length;
+  var online = devices.filter(function(d) { return d.status === 'ONLINE'; }).length;
+  var offline = total - online;
+  document.getElementById('sbTotal').textContent = total;
+  document.getElementById('sbOnline').textContent = online;
+  document.getElementById('sbOffline').textContent = offline;
+  document.getElementById('sbSync').textContent = new Date().toLocaleTimeString('zh-CN');
+}
+function startClock() {
+  setInterval(function() {
+    document.getElementById('clock').textContent = new Date().toLocaleTimeString('zh-CN');
+  }, 1000);
+}
+
+// Preset clicks
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('preset')) {
+    document.querySelectorAll('#presets .preset').forEach(function(p) { p.classList.remove('sel'); });
+    e.target.classList.add('sel');
+    document.getElementById('sRange').value = Math.round(parseFloat(e.target.dataset.s) * 100);
+    document.getElementById('tRange').value = e.target.dataset.t;
+    document.getElementById('humiVal').value = e.target.dataset.h;
+    syncSlider();
+  }
 });
 
-// 筛选输入框回车键支持
-[el("reviewFilterAlarmId"), el("reviewFilterDeviceId")].forEach(function(node) {
-  if (node) node.addEventListener("keydown", function(event) { if (event.key === "Enter") loadReviewRows(1); });
-});
+// Init
+init();
+// Auto-start heartbeats for ONLINE devices after first data load
+setTimeout(autoStartHeartbeats, 2000);
+</script>
+</body>
+</html>
 ```
 
-### 注意事项
+- [ ] **Step 2: 验证 simulator.html**
 
-- 所有按钮元素在 Task 1 的 HTML 中已创建，此处只需绑定事件
-- 导航按钮 (`data-view="reviews"`) 在 `initMenus()` 中已通过 `document.querySelectorAll(".nav-btn")` 自动绑定，无需额外处理
-- 表格中的详情/确认/驳回按钮事件在 Task 3 的 `renderReviewTable()` 中已绑定，无需重复
-- 告警详情按钮的事件绑定保持不变（已在 `renderAlarmTable()` 中绑定 `data-alarm-detail`）
+在浏览器中访问 `http://localhost:8080/simulator.html`:
+- 确认左侧设备清单正常加载
+- 点击设备 → 中间切换为独立控制面板
+- 心跳启动/停止正常工作
+- 数据发送正常
+- 阈值保存正常
+- 全局日志显示 WebSocket 事件
 
-## 验证
+- [ ] **Step 3: Commit**
 
-在浏览器中：
-1. 点击侧边栏"AI视觉复核"按钮 → 标题显示"AI 视觉复核" → 自动加载数据
-2. 点击"刷新"按钮 → 重新加载数据
-3. 输入告警ID/设备ID后点击"查询" → 按条件筛选
-4. 输入告警ID/设备ID后按回车 → 按条件筛选
-5. 点击"重置" → 清空筛选条件 → 重新加载全部数据
-6. 切换到其他视图再切回 → 页面状态正确
+```bash
+git add src/main/resources/static/simulator.html
+git commit -m "feat: 完全重写 simulator.html — 独立设备监测、心跳模拟、三栏布局"
+```
+
+---
+

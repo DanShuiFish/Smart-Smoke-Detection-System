@@ -14,6 +14,7 @@ import com.smartsmoke.mapper.SensorDataMapper;
 import com.smartsmoke.service.DeviceBindingService;
 import com.smartsmoke.service.DeviceService;
 import com.smartsmoke.service.PermissionService;
+import com.smartsmoke.websocket.AlarmWebSocket;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
@@ -178,6 +179,7 @@ public class DeviceController {
         binding.setBindTime(LocalDateTime.now());
         deviceBindingService.save(binding);
 
+        AlarmWebSocket.broadcastDataChanged(device.getDeviceId());
         return Result.success(device);
     }
 
@@ -200,22 +202,34 @@ public class DeviceController {
         }
         device.setId(id);
         deviceService.updateById(device);
+        AlarmWebSocket.broadcastDataChanged(exist.getDeviceId());
         return Result.success(deviceService.getById(id));
     }
 
     @DeleteMapping("/{id}")
     public Result<Void> deleteDevice(@PathVariable Long id) {
         if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权删除设备");
+        SmokeDevice device = deviceService.getById(id);
+        if (device == null) return Result.error(404, "设备不存在");
         boolean removed = deviceService.removeById(id);
-        return removed ? Result.success() : Result.error(404, "设备不存在");
+        if (removed) {
+            AlarmWebSocket.broadcastDataChanged(device.getDeviceId());
+        }
+        return removed ? Result.success() : Result.error(500, "删除失败");
     }
 
     @DeleteMapping("/batch")
     public Result<Void> batchDelete(@Valid @RequestBody DeviceBatchDeleteRequest request) {
         if (!permissionService.hasAdminWritePermission()) return Result.error(403, "无权批量删除设备");
+        // 删除前先查出设备 code，用于 WebSocket 精准通知
+        List<SmokeDevice> devices = deviceService.listByIds(request.getIds());
         deviceService.removeByIds(request.getIds());
+        for (SmokeDevice d : devices) {
+            AlarmWebSocket.broadcastDataChanged(d.getDeviceId());
+        }
         return Result.success();
     }
+
     @GetMapping("/building-tree")
     public Result<Map<String, Object>> buildingTree() {
         List<SmokeDevice> devices = deviceService.lambdaQuery()

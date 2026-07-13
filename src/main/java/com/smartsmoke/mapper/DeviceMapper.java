@@ -6,6 +6,8 @@ import com.smartsmoke.entity.SmokeDevice;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 
+import java.util.List;
+
 @Mapper
 public interface DeviceMapper extends BaseMapper<SmokeDevice> {
 
@@ -17,4 +19,12 @@ public interface DeviceMapper extends BaseMapper<SmokeDevice> {
             "COALESCE(CAST(AVG(battery) AS SIGNED), 0) AS avgBattery " +
             "FROM smoke_device WHERE is_deleted = 0")
     DeviceStatusStatsVO getDeviceStats();
+
+    /** 获取所有已注册设备的唯一地址（用于注册时下拉选择），已过滤逻辑删除和空地址 */
+    @Select("SELECT DISTINCT location_building, location_floor, location_room " +
+            "FROM smoke_device " +
+            "WHERE is_deleted = 0 " +
+            "AND location_building IS NOT NULL AND location_building != '' " +
+            "ORDER BY location_building, location_floor, location_room")
+    List<SmokeDevice> getDistinctAddresses();
 }

@@ -5,15 +5,13 @@ spring:
   application:
     name: smart-smoke-detection
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
+    url: ${DB_URL:jdbc:mysql://10.100.42.60/smart_smoke?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:123456}
+    password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
   sql:
     init:
-      mode: always
-      schema-locations: classpath:schema.sql
-      continue-on-error: true
+      mode: never
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
@@ -22,7 +20,7 @@ spring:
       static-locations: classpath:/static/,file:./smart-smoke-models/test-images/
   data:
     redis:
-      host: ${REDIS_HOST:192.168.142.128}
+      host: ${REDIS_HOST:10.100.42.60}
       port: 6379
       database: 0
       timeout: 3000ms
@@ -43,16 +41,15 @@ mybatis-plus:
     banner: false
     db-config:
       id-type: AUTO
-      logic-delete-field: is_deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
 
 mqtt:
   broker:
-    url: ${MQTT_BROKER_URL:tcp://192.168.142.128:1883}
+    url: ${MQTT_BROKER_URL:tcp://10.100.42.60:1883}
     client-id: ${MQTT_CLIENT_ID:smart-smoke-backend}
     username: ${MQTT_USERNAME:fasong}
     password: ${MQTT_PASSWORD:fasong123}
@@ -62,10 +59,10 @@ mqtt:
 
 logging:
   level:
-    com.smartsmoke: debug
+    com.smartsmoke: info
 
 maxkb:
-  base-url: ${MAXKB_BASE_URL:http://10.120.67.60:8080/chat/api}
+  base-url: ${MAXKB_BASE_URL:http://10.100.42.60:8080/chat/api}
   api-key: ${MAXKB_API_KEY:agent-f80381fc92fdbbfd9ea75940b7ca5c18}
   application-id: ${MAXKB_APP_ID:019f2b03-6788-73a3-9ddf-555c3926a6fe}
   timeout: 30000

@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.smartsmoke.common.Result;
 import com.smartsmoke.entity.AlertThreshold;
 import com.smartsmoke.service.AlertThresholdService;
+import com.smartsmoke.websocket.AlarmWebSocket;
+import cn.hutool.json.JSONUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -36,6 +38,7 @@ public class AlertThresholdController {
     @PostMapping
     public Result<AlertThreshold> create(@RequestBody AlertThreshold threshold) {
         alertThresholdService.save(threshold);
+        pushChanged(threshold);
         return Result.success(threshold);
     }
 
@@ -58,13 +61,31 @@ public class AlertThresholdController {
         if (update.getRemark() != null) uw.set(AlertThreshold::getRemark, update.getRemark());
         if (update.getSortOrder() != null) uw.set(AlertThreshold::getSortOrder, update.getSortOrder());
         alertThresholdService.update(uw);
+        pushChanged(alertThresholdService.getById(id));
         return Result.success(alertThresholdService.getById(id));
     }
 
     // 10.5 删除阈值（逻辑删除）
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
+        AlertThreshold existing = alertThresholdService.getById(id);
         alertThresholdService.removeById(id);
+        pushChanged(existing);
         return Result.success();
+    }
+
+    private void pushChanged() {
+        try { AlarmWebSocket.broadcast(JSONUtil.toJsonStr(java.util.Map.of("kind", "data_changed"))); }
+        catch (Exception e) { }
+    }
+
+    private void pushChanged(AlertThreshold threshold) {
+        try {
+            AlarmWebSocket.broadcastDataChanged(null);
+            if (threshold != null && threshold.getDeviceId() != null) {
+                AlarmWebSocket.broadcastDeviceConfigChanged(String.valueOf(threshold.getDeviceId()),
+                        threshold.getThresholdType() != null ? threshold.getThresholdType() : "threshold");
+            }
+        } catch (Exception e) { }
     }
 }

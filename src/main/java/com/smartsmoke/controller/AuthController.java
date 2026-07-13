@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -25,22 +24,18 @@ public class AuthController {
     private final UserService userService;
     private final DeviceMapper deviceMapper;
 
-    // 获取可注册的地址列表（从已有设备中提取）
+    // 获取可注册的地址列表（从已有设备中提取唯一地址）
     @GetMapping("/addresses")
     public Result<List<Map<String, String>>> addresses() {
-        List<SmokeDevice> devices = deviceMapper.selectList(null);
-        Set<String> seen = new HashSet<>();
+        List<SmokeDevice> devices = deviceMapper.getDistinctAddresses();
         List<Map<String, String>> list = new ArrayList<>();
         for (SmokeDevice d : devices) {
-            String key = d.getLocationBuilding() + "|" + d.getLocationFloor() + "|" + d.getLocationRoom();
-            if (seen.add(key)) {
-                Map<String, String> m = new HashMap<>();
-                m.put("building", d.getLocationBuilding());
-                m.put("floor", d.getLocationFloor());
-                m.put("room", d.getLocationRoom());
-                m.put("label", d.getLocationBuilding() + " " + d.getLocationFloor() + " " + d.getLocationRoom());
-                list.add(m);
-            }
+            Map<String, String> m = new HashMap<>();
+            m.put("building", d.getLocationBuilding());
+            m.put("floor", d.getLocationFloor());
+            m.put("room", d.getLocationRoom());
+            m.put("label", d.getLocationBuilding() + " " + d.getLocationFloor() + " " + d.getLocationRoom());
+            list.add(m);
         }
         return Result.success(list);
     }

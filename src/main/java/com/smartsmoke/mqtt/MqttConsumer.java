@@ -10,6 +10,7 @@ import com.smartsmoke.entity.SmokeDevice;
 import com.smartsmoke.mapper.DeviceMapper;
 import com.smartsmoke.rule.AlarmRuleEngine;
 import com.smartsmoke.service.AlarmRecordService;
+import com.smartsmoke.websocket.AlarmWebSocket;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.paho.client.mqttv3.MqttClient;
@@ -126,12 +127,17 @@ public class MqttConsumer {
         deviceMapper.updateById(updateDevice);
 
         // Redis 心跳续期：Key 过期后由 RedisKeyspaceListener 触发离线告警
-        int ttl = device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 30;
+        // TTL 最小值 90s，防止浏览器后台标签页节流 setInterval(10s→~60s) 导致误报离线
+        int ttl = Math.max(device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 90, 90);
         stringRedisTemplate.opsForValue()
                 .set("device:heartbeat:" + heartbeat.getDeviceId(), "1", Duration.ofSeconds(ttl));
 
         // 设备恢复上线：自动关闭该设备已有的 DEVICE_OFFLINE 类型活跃告警
         closeOfflineAlarms(device.getId());
+
+        // 发送 WebSocket 通知设备上线
+        AlarmWebSocket.broadcastDataChanged(heartbeat.getDeviceId());
+        AlarmWebSocket.broadcastDeviceOnline(heartbeat.getDeviceId(), device.getDeviceName());
 
         log.debug("心跳更新: {} battery={}% rssi={}dBm", heartbeat.getDeviceId(), heartbeat.getBat(), heartbeat.getRssi());
     }
@@ -170,7 +176,8 @@ public class MqttConsumer {
         deviceMapper.updateById(updateDevice);
 
         // 数据上报设备也写 Redis 心跳 Key，确保离线检测覆盖纯数据上报设备
-        int dataTtl = device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 30;
+        // TTL 最小值 90s，防止浏览器后台标签页节流 setInterval(10s→~60s) 导致误报离线
+        int dataTtl = Math.max(device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 90, 90);
         stringRedisTemplate.opsForValue()
                 .set("device:heartbeat:" + report.getDeviceId(), "1", Duration.ofSeconds(dataTtl));
 

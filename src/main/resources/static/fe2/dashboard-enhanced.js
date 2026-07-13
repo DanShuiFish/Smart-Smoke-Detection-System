@@ -10,7 +10,7 @@ const state = {
   deviceStats: { total: 0, online: 0, offline: 0, error: 0, inactive: 0, avgBattery: 0 },
   deviceFormMode: "create",
   editingDeviceId: "",
-  screen: { stats: {}, realtime: {}, alarmSample: [], deviceTrend: [] },
+  screen: { stats: {}, realtime: {}, alarmSample: [], deviceTrend: [], deviceThresholds: null },
   analysis: { alarmTrend: [], alarmSample: [], deviceStats: [] },
   devicesPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
   alarmsPage: { page: 1, pageSize: 10, total: 0, pages: 1, records: [] },
@@ -333,11 +333,22 @@ function renderLatestMetrics() {
   const smoke = Number(latest && (latest.smoke || latest.smokeValue || latest.smokeConcentration) || 0);
   const temp = Number(latest && (latest.temperature || latest.tempValue) || 0);
   const signal = Number(latest && (latest.signalStrength || latest.rssi) || 0);
+  var thresholds = state.screen.deviceThresholds || { smokeHigh: 0.30, smokeMedium: 0.15, tempHigh: 65 };
+  var sHigh = Number(thresholds.smokeHigh) || 0.30;
+  var sMed  = Number(thresholds.smokeMedium) || 0.15;
+  var tHigh = Number(thresholds.tempHigh) || 65;
+
   const smokeNode = el("screenSmokeValue");
   const tempNode = el("screenTempValue");
   const signalNode = el("screenSignalValue");
-  if (smokeNode) smokeNode.textContent = latest ? smoke.toFixed(1) : "--";
-  if (tempNode) tempNode.textContent = latest ? temp.toFixed(1) : "--";
+  if (smokeNode) {
+    smokeNode.textContent = latest ? smoke.toFixed(1) : "--";
+    smokeNode.className = "stat-value" + (latest ? (smoke >= sHigh ? " danger" : smoke >= sMed ? " warn" : " ok") : "");
+  }
+  if (tempNode) {
+    tempNode.textContent = latest ? temp.toFixed(1) : "--";
+    tempNode.className = "stat-value warm" + (latest && temp >= tHigh ? " danger" : "");
+  }
   if (signalNode) signalNode.textContent = latest && Number.isFinite(signal) ? String(signal) : "--";
 }
 function getScreenDeviceStatusData() {
@@ -397,18 +408,175 @@ function renderScreenCharts() {
   const realtime = state.screen.realtime || {};
   const deviceTrend = Array.isArray(state.screen.deviceTrend) ? state.screen.deviceTrend : [];
   const latestData = deviceTrend.length ? deviceTrend : (Array.isArray(realtime.latestData) ? realtime.latestData : []);
-  const xAxis = latestData.map((item, index) => safeText(item.createTime || item.time || item.timestamp || index + 1, ""));
-  const smokeSeries = latestData.map((item) => Number(item.smoke || item.smokeValue || item.smokeConcentration || 0));
-  const tempSeries = latestData.map((item) => Number(item.temperature || item.tempValue || 0));
-  renderChart("screenRealtime", "chartRealtime", {
-    tooltip: { trigger: "axis" }, legend: { top: 0, textStyle: { color: "#475569" } }, grid: { left: 44, right: 20, top: 34, bottom: 30 },
-    xAxis: { type: "category", data: xAxis, axisLabel: { color: "#64748b" }, axisLine: { lineStyle: { color: "#cbd5e1" } } },
-    yAxis: { type: "value", axisLabel: { color: "#64748b" }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.18)" } } },
-    series: [
-      { name: "烟雾", type: "line", smooth: true, data: smokeSeries, itemStyle: { color: "#2563eb" }, areaStyle: { color: "rgba(37,99,235,0.12)" } },
-      { name: "温度", type: "line", smooth: true, data: tempSeries, itemStyle: { color: "#f97316" }, areaStyle: { color: "rgba(249,115,22,0.08)" } },
+  const xLabels = latestData.map(function(item, index) {
+    var t = item.createTime || item.time || item.timestamp || "";
+    if (t && t.length >= 16) t = t.substring(5, 16).replace("T", " ");
+    return t || (index + 1);
+  });
+  const smokeSeries = latestData.map(function(item) { return Number(item.smoke || item.smokeValue || item.smokeConcentration || 0); });
+  const tempSeries = latestData.map(function(item) { return Number(item.temperature || item.tempValue || 0); });
+  var thresholds = state.screen.deviceThresholds || { smokeHigh: 0.30, smokeMedium: 0.15, tempHigh: 65 };
+  var smokeHigh = Number(thresholds.smokeHigh) || 0.30;
+  var smokeMed = Number(thresholds.smokeMedium) || 0.15;
+  var tempHigh = Number(thresholds.tempHigh) || 65;
+  var deviceCode = "";
+  var records2 = state.devicesPage.records || [];
+  var found2 = records2.find(function(r) { return String(r.id) === String(state.selectedDeviceId || ""); });
+  if (found2) deviceCode = found2.deviceId || found2.deviceName || "";
+
+  disposeChart("screenRealtime");
+
+  // === 计算智能 Y 轴范围（基于真实数据，阈值合理时纳入） ===
+  var smokeDataMax = Math.max.apply(null, smokeSeries.filter(function(v){return Number.isFinite(v);}).concat([0.3]));
+  var tempDataMax = Math.max.apply(null, tempSeries.filter(function(v){return Number.isFinite(v);}).concat([25]));
+
+  // 烟雾轴：数据范围内阈值是否可见
+  var smokeVisHigh = smokeHigh <= smokeDataMax * 2.0;
+  var smokeVisMed  = smokeMed  <= smokeDataMax * 2.0;
+  var smokeScaleMax = smokeDataMax;
+  if (smokeVisHigh) smokeScaleMax = Math.max(smokeScaleMax, smokeHigh);
+  if (smokeVisMed)  smokeScaleMax = Math.max(smokeScaleMax, smokeMed);
+  var smokeMax = Math.ceil(smokeScaleMax * 100) / 100 * 1.25;
+
+  // 温度轴：数据范围内阈值是否可见
+  var tempVisHigh = tempHigh <= tempDataMax * 2.0;
+  var tempScaleMax = tempDataMax;
+  if (tempVisHigh) tempScaleMax = Math.max(tempScaleMax, tempHigh);
+  var tempMax = Math.ceil(tempScaleMax * 1.2);
+
+  // === 构建阈值 markLine 配置（企业级：精确到 0.01，带描述标签） ===
+  function smokeMarkLine(value, label, color, visible) {
+    if (!visible) return null;
+    return { name: label, yAxis: value, lineStyle: { color: color, width: 2, type: "dashed" },
+      label: { show: true, position: "insideEndTop", formatter: label + " " + value.toFixed(2), color: color, fontSize: 11, fontWeight: "bold", distance: 4 } };
+  }
+  function tempMarkLine(value, label, color, visible) {
+    if (!visible) return null;
+    return { name: label, yAxis: value, lineStyle: { color: color, width: 2, type: "dashed" },
+      label: { show: true, position: "insideEndTop", formatter: label + " " + value + "°C", color: color, fontSize: 11, fontWeight: "bold", distance: 4 } };
+  }
+
+  var smokeMarkLines = [
+    smokeMarkLine(smokeMed,  "预警", "#f59e0b", smokeVisMed),
+    smokeMarkLine(smokeHigh, "报警", "#dc2626", smokeVisHigh),
+  ].filter(Boolean);
+
+  var tempMarkLines = [
+    tempMarkLine(tempHigh, "报警", "#dc2626", tempVisHigh),
+  ].filter(Boolean);
+
+  // === 构建阈值背景色带 (markArea) — 最简双点格式，兼容所有 ECharts 版本 ===
+  function buildSmokeMarkArea() {
+    var data = [];
+    if (smokeVisMed) {
+      // 安全区: 0 → 预警
+      data.push([{ yAxis: 0, itemStyle: { color: "rgba(34,197,94,0.08)" } }, { yAxis: smokeMed }]);
+      if (smokeVisHigh) {
+        // 预警区: 预警 → 报警
+        data.push([{ yAxis: smokeMed, itemStyle: { color: "rgba(245,158,11,0.10)" } }, { yAxis: smokeHigh }]);
+        // 报警区: 报警 → 上限
+        data.push([{ yAxis: smokeHigh, itemStyle: { color: "rgba(239,68,68,0.12)" } }, { yAxis: smokeMax }]);
+      } else {
+        // 预警区到上限
+        data.push([{ yAxis: smokeMed, itemStyle: { color: "rgba(245,158,11,0.08)" } }, { yAxis: smokeMax }]);
+      }
+    }
+    return data;
+  }
+
+  function buildTempMarkArea() {
+    var data = [];
+    if (tempVisHigh) {
+      data.push([{ yAxis: 0, itemStyle: { color: "rgba(34,197,94,0.08)" } }, { yAxis: tempHigh }]);
+      data.push([{ yAxis: tempHigh, itemStyle: { color: "rgba(239,68,68,0.12)" } }, { yAxis: tempMax }]);
+    }
+    return data;
+  }
+
+  // === 离群阈值标注（阈值远超数据范围时在轴顶显示提示） ===
+  function offChartNote(value, unit, visible) {
+    if (visible) return "";
+    return "阈值 " + value.toFixed(2) + " " + unit + "（超出当前数据范围）";
+  }
+  var smokeOffNote = offChartNote(smokeHigh, "mg/m³", smokeVisHigh);
+  var tempOffNote  = offChartNote(tempHigh, "°C", tempVisHigh);
+  var subtitleText = [smokeOffNote, tempOffNote].filter(Boolean).join("  |  ");
+
+  // === Enterprise-grade tooltip ===
+  function buildTooltip(params) {
+    var html = "";
+    for (var i = 0; i < params.length; i++) {
+      var p = params[i];
+      if (p.seriesName === "烟雾浓度") {
+        var smokeVal = Number(p.value) || 0;
+        var statusHtml = "";
+        if (smokeVal >= smokeHigh) statusHtml = '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:#fef2f2;color:#dc2626;font-weight:700;margin-left:6px;">● 超标</span>';
+        else if (smokeVal >= smokeMed) statusHtml = '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:#fffbeb;color:#d97706;font-weight:700;margin-left:6px;">● 预警</span>';
+        else statusHtml = '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:#f0fdf4;color:#16a34a;font-weight:700;margin-left:6px;">● 正常</span>';
+        html += '<div style="margin-bottom:6px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;margin-right:6px;"></span>' + p.seriesName + ": <b>" + smokeVal.toFixed(2) + " mg/m³</b>" + statusHtml + '</div>';
+        html += '<div style="font-size:11px;color:#94a3b8;margin-left:16px;">阈值: 预警 ' + smokeMed.toFixed(2) + ' / 报警 ' + smokeHigh.toFixed(2) + ' mg/m³</div>';
+      } else if (p.seriesName === "温度") {
+        var tempVal = Number(p.value) || 0;
+        var tempStatus = tempVal >= tempHigh ? '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:#fef2f2;color:#dc2626;font-weight:700;margin-left:6px;">● 超标</span>' : '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:#f0fdf4;color:#16a34a;font-weight:700;margin-left:6px;">● 正常</span>';
+        html += '<div style="margin-bottom:6px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f97316;margin-right:6px;"></span>' + p.seriesName + ": <b>" + tempVal.toFixed(1) + " °C</b>" + tempStatus + '</div>';
+        html += '<div style="font-size:11px;color:#94a3b8;margin-left:16px;">阈值: 报警 ' + tempHigh + ' °C</div>';
+      }
+    }
+    html += '<div style="margin-top:4px;padding-top:4px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;">' + params[0].axisValue + '</div>';
+    return html;
+  }
+
+  // === 两图上下堆叠：上方烟雾，下方温度（企业级：各自独立 Y 轴 + 阈值色带） ===
+  var option = {
+    tooltip: { trigger: "axis", axisPointer: { type: "cross", crossStyle: { color: "#94a3b8" } },
+      backgroundColor: "#fff", borderColor: "#e2e8f0", textStyle: { color: "#334155", fontSize: 12 },
+      extraCssText: "box-shadow: 0 4px 16px rgba(0,0,0,0.10); border-radius: 8px; padding: 10px 14px;",
+      formatter: buildTooltip },
+    legend: { top: 0, textStyle: { color: "#64748b", fontSize: 11 } },
+    axisPointer: { link: [{ xAxisIndex: "all" }] },
+    grid: [
+      { left: 58, right: 28, top: 38, bottom: "54%" },
+      { left: 58, right: 28, top: "54%", bottom: subtitleText ? 48 : 28 },
     ],
-  }, latestData.length > 0, "暂无趋势数据", "当前没有可用的实时传感器数据，稍后刷新或检查设备在线状态。");
+    xAxis: [
+      { type: "category", data: xLabels, gridIndex: 0, axisLabel: { color: "#94a3b8", fontSize: 10 }, axisLine: { lineStyle: { color: "#cbd5e1" } }, axisTick: { show: false } },
+      { type: "category", data: xLabels, gridIndex: 1, axisLabel: { color: "#94a3b8", fontSize: 10 }, axisLine: { lineStyle: { color: "#cbd5e1" } }, axisTick: { show: false } },
+    ],
+    yAxis: [
+      { type: "value", gridIndex: 0, name: "mg/m³", nameTextStyle: { color: "#64748b", fontSize: 11 }, max: smokeMax, min: 0,
+        axisLabel: { color: "#64748b", fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.15)", type: "dashed" } },
+        axisLine: { show: false }, axisTick: { show: false } },
+      { type: "value", gridIndex: 1, name: "°C", nameTextStyle: { color: "#64748b", fontSize: 11 }, max: tempMax, min: 0,
+        axisLabel: { color: "#64748b", fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.15)", type: "dashed" } },
+        axisLine: { show: false }, axisTick: { show: false } },
+    ],
+    series: [
+      // 上方图：烟雾浓度
+      { name: "烟雾浓度", type: "line", xAxisIndex: 0, yAxisIndex: 0, smooth: true, symbol: "circle", symbolSize: 4,
+        data: smokeSeries, itemStyle: { color: "#2563eb" }, lineStyle: { width: 2.5 },
+        areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [{ offset: 0, color: "rgba(37,99,235,0.18)" }, { offset: 1, color: "rgba(37,99,235,0.0)" }] } },
+        z: 2,
+        markLine: { silent: true, symbol: "none", data: smokeMarkLines, label: { fontSize: 10, distance: 6 } } },
+      // 下方图：温度
+      { name: "温度", type: "line", xAxisIndex: 1, yAxisIndex: 1, smooth: true, symbol: "circle", symbolSize: 4,
+        data: tempSeries, itemStyle: { color: "#f97316" }, lineStyle: { width: 2.5 },
+        areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [{ offset: 0, color: "rgba(249,115,22,0.14)" }, { offset: 1, color: "rgba(249,115,22,0.0)" }] } },
+        z: 2,
+        markLine: { silent: true, symbol: "none", data: tempMarkLines, label: { fontSize: 10, distance: 6 } } },
+    ],
+  };
+
+  // 离群阈值提示（阈值远超数据范围时的脚注）
+  if (subtitleText) {
+    option.graphic = [{
+      type: "text", left: "center", bottom: 6, z: 100,
+      style: { text: "⚠ " + subtitleText, fill: "#94a3b8", fontSize: 11, fontStyle: "italic" }
+    }];
+  }
+
+  renderChart("screenRealtime", "chartRealtime", option, latestData.length > 0, "暂无趋势数据", "当前没有可用的实时传感器数据，稍后刷新或检查设备在线状态。");
 
   const deviceStatusData = getScreenDeviceStatusData();
   renderChart("screenDeviceStatus", "chartScreenDeviceStatus", {
@@ -570,6 +738,23 @@ function fillDeviceForm(item) {
   if (el("formLocationFloor")) el("formLocationFloor").value = safeText(item && item.locationFloor, "");
   if (el("formLocationRoom")) el("formLocationRoom").value = safeText(item && item.locationRoom, "");
   if (el("formRemark")) el("formRemark").value = safeText(item && item.remark, "");
+  // Threshold defaults (loaded async if editing)
+  if (el("formSmokeHigh")) el("formSmokeHigh").value = "0.30";
+  if (el("formSmokeMedium")) el("formSmokeMedium").value = "0.15";
+  if (el("formTempHigh")) el("formTempHigh").value = "65";
+  // Load existing thresholds for edit mode
+  if (item && item.id) loadFormThresholds(item.deviceId || item.id);
+}
+
+async function loadFormThresholds(deviceCode) {
+  try {
+    var t = await apiRequest("/simulation/device/threshold?deviceCode=" + encodeURIComponent(deviceCode));
+    if (t) {
+      if (t.smokeHigh !== undefined && el("formSmokeHigh")) el("formSmokeHigh").value = t.smokeHigh;
+      if (t.smokeMedium !== undefined && el("formSmokeMedium")) el("formSmokeMedium").value = t.smokeMedium;
+      if (t.tempHigh !== undefined && el("formTempHigh")) el("formTempHigh").value = t.tempHigh;
+    }
+  } catch (e) { /* ignore */ }
 }
 function openDeviceFormModal(mode, item) {
   state.deviceFormMode = mode;
@@ -842,16 +1027,24 @@ async function submitDeviceForm(event) {
   try {
     const payload = await validateDeviceForm(true);
     const isEdit = state.deviceFormMode === "edit" && state.editingDeviceId;
-    await apiRequest(isEdit ? "/devices/" + state.editingDeviceId : "/devices", {
+    var result = await apiRequest(isEdit ? "/devices/" + state.editingDeviceId : "/devices", {
       method: isEdit ? "PUT" : "POST",
       body: JSON.stringify(payload),
+    });
+    // Save thresholds
+    var deviceCode = payload.deviceId;
+    var sH = parseFloat((el("formSmokeHigh") && el("formSmokeHigh").value) || "0.30");
+    var sM = parseFloat((el("formSmokeMedium") && el("formSmokeMedium").value) || "0.15");
+    var tH = parseInt((el("formTempHigh") && el("formTempHigh").value) || "65");
+    await apiRequest("/simulation/device/threshold", {
+      method: "POST",
+      body: JSON.stringify({ deviceCode: deviceCode, smokeHigh: sH, smokeMedium: sM, tempHigh: tH })
     });
     closeDeviceFormModal();
     await Promise.all([loadDeviceStats(), loadDevices(isEdit ? state.devicesPage.page : 1), loadScreenData(), loadAnalysisData()]);
     showGlobalAlert(isEdit ? "设备更新成功" : "设备新增成功");
   } catch (error) {
-    // 弹窗内展示错误
-    const errMsg = error.message || "";
+    var errMsg = error.message || "";
     if (errMsg.includes("设备编号") || errMsg.includes("已存在") || errMsg.includes("409")) {
       setDeviceIdValidation(errMsg.includes("409") ? "设备编号已存在" : errMsg, "error");
     }
@@ -897,10 +1090,63 @@ async function batchHandleAlarms(action) {
   await loadAnalysisData();
 }
 async function handleAlarmAction(action, id) {
-  if (action === "confirm") await apiRequest("/alarms/" + id + "/confirm", { method: "PUT", body: JSON.stringify({ confirmMethod: "MANUAL" }) });
+  if (action === "confirm") {
+    await apiRequest("/alarms/" + id + "/confirm", { method: "PUT", body: JSON.stringify({ confirmMethod: "MANUAL" }) });
+    showBroadcastPrompt(id);
+  }
   else if (action === "resolve") await apiRequest("/alarms/" + id + "/resolve", { method: "PUT", body: JSON.stringify({ resolveMethod: "ON_SITE", resolveDetail: "由前端快速处置" }) });
   else if (action === "archive") await apiRequest("/alarms/" + id + "/archive", { method: "PUT" });
   else if (action === "close") await apiRequest("/alarms/" + id + "/close", { method: "PUT", body: JSON.stringify({ remark: "由前端关闭" }) });
+}
+
+// 确认告警后弹窗询问是否下发区域广播
+function showBroadcastPrompt(alarmId) {
+  var alarm = (state.alarmsPage.records || []).find(function(r) { return String(r.id) === String(alarmId); });
+  if (!alarm) return;
+
+  var building = alarm.locationBuilding || alarm.building || "";
+  var floor = alarm.locationFloor || alarm.floor || "";
+  var area = building + (floor || "全部楼层");
+  var content = "【火警紧急通知】" + area + "区域检测到火情，请立即按照疏散通道有序撤离！";
+
+  var mask = document.createElement("div");
+  mask.className = "broadcast-prompt-mask";
+  mask.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;";
+  mask.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px;width:440px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+    '<h3 style="margin:0 0 8px;font-size:16px;color:#1e293b;">📢 告警已确认 — 是否下发广播？</h3>' +
+    '<p style="margin:0 0 16px;font-size:13px;color:#64748b;">该告警涉及区域：<b style="color:#dc2626;">' + escapeHtml(area) + '</b></p>' +
+    '<div style="margin-bottom:16px;"><label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">广播区域</label>' +
+    '<input id="broadcastPromptBuilding" value="' + escapeHtml(building) + '" style="width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:6px;" placeholder="楼栋">' +
+    '<input id="broadcastPromptFloor" value="' + escapeHtml(floor) + '" style="width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;" placeholder="楼层（留空=全部楼层）"></div>' +
+    '<div style="margin-bottom:16px;"><label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">广播内容</label>' +
+    '<textarea id="broadcastPromptContent" rows="3" style="width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;resize:vertical;">' + escapeHtml(content) + '</textarea></div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+    '<button class="btn" onclick="this.closest(\'.broadcast-prompt-mask\').remove()" style="padding:8px 16px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer;font-size:12px;">跳过</button>' +
+    '<button class="btn" onclick="sendPromptBroadcast(\'' + alarmId + '\',this)" style="padding:8px 16px;background:#dc2626;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">📢 发送广播</button>' +
+    '</div></div>';
+  mask.addEventListener("click", function(e) { if (e.target === mask) mask.remove(); });
+  document.body.appendChild(mask);
+}
+
+async function sendPromptBroadcast(alarmId, btn) {
+  var mask = btn.closest(".broadcast-prompt-mask");
+  var building = (document.getElementById("broadcastPromptBuilding")?.value || "").trim();
+  var floor = (document.getElementById("broadcastPromptFloor")?.value || "").trim();
+  var content = (document.getElementById("broadcastPromptContent")?.value || "").trim();
+  if (!building) { showGlobalAlert("请填写楼栋"); return; }
+  if (!content) { showGlobalAlert("请填写广播内容"); return; }
+  btn.disabled = true; btn.textContent = "发送中...";
+  try {
+    await apiRequest("/broadcasts/area", {
+      method: "POST",
+      body: JSON.stringify({ building: building, floor: floor || null, broadcastContent: content, broadcastType: "EMERGENCY", triggerMode: "MANUAL" })
+    });
+    showGlobalAlert("已向 " + building + (floor || "全部楼层") + " 下发广播");
+    if (mask) mask.remove();
+  } catch (e) {
+    showGlobalAlert("广播失败: " + e.message);
+    btn.disabled = false; btn.textContent = "📢 发送广播";
+  }
 }
 
 // ===== AI 聊天（增强版） =====
@@ -1281,6 +1527,19 @@ function showDeviceOnlineBanner(payload) {
   setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 10000);
 }
 
+function showDeviceOfflineBanner(payload) {
+  var stack = el("alarmBannerStack");
+  var dName = safeText(payload.deviceName || payload.deviceId, "未知设备");
+  if (!stack) return;
+  var id = "off-" + Date.now() + "-" + Math.random().toString(36).slice(2,6);
+  var card = document.createElement("div");
+  card.id = id;
+  card.style.cssText = "background:#fff7ed;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,0.08);padding:10px 14px;border-left:4px solid #f59e0b;font-size:12px;";
+  card.innerHTML = '<strong style="color:#92400e;">⚠ 设备离线</strong> ' + escapeHtml(dName) + ' <span style="float:right;cursor:pointer;color:#94a3b8;" onclick="this.parentElement.remove()">×</span>';
+  stack.appendChild(card);
+  setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 10000);
+}
+
 var _lastBcKey = "", _lastBcTime = 0;
 function showBroadcastBanner(payload) {
   var key = (payload.area || '') + '|' + (payload.message || '').substring(0, 30);
@@ -1339,29 +1598,44 @@ async function loadScreenData() {
 }
 
 async function loadSelectedDeviceTrend() {
-  const deviceId = String(state.selectedDeviceId || "").trim();
+  var deviceId = String(state.selectedDeviceId || "").trim();
   if (!deviceId) {
     state.screen.deviceTrend = [];
+    state.screen.deviceThresholds = null;
     renderLatestMetrics();
     renderScreenCharts();
     return;
   }
 
-  const end = new Date();
-  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-  const query = "/data/history/" + encodeURIComponent(deviceId)
+  // Find device code from records
+  var deviceCode = "";
+  var records = state.devicesPage.records || [];
+  var found = records.find(function(r) { return String(r.id) === deviceId; });
+  if (found) deviceCode = found.deviceId || "";
+
+  var end = new Date();
+  var start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+  var query = "/data/history/" + encodeURIComponent(deviceId)
     + "?start=" + encodeURIComponent(formatLocalDateTimeParam(start))
     + "&end=" + encodeURIComponent(formatLocalDateTimeParam(end))
     + "&page=1&pageSize=500";
 
+  // Fetch trend data and thresholds in parallel
+  var trendPromise = apiRequest(query).catch(function(e) { console.error(e); return null; });
+  var thresholdPromise = deviceCode
+    ? apiRequest("/simulation/device/threshold?deviceCode=" + encodeURIComponent(deviceCode)).catch(function(e) { return null; })
+    : Promise.resolve(null);
+
   try {
-    const data = await apiRequest(query);
-    state.screen.deviceTrend = normalizePageResult(data, 1, 500).records || [];
+    var data = await trendPromise;
+    state.screen.deviceTrend = data ? (normalizePageResult(data, 1, 500).records || []) : [];
   } catch (error) {
     console.error(error);
     state.screen.deviceTrend = [];
-    showGlobalAlert("设备趋势加载失败: " + error.message);
   }
+
+  var thresholds = await thresholdPromise;
+  state.screen.deviceThresholds = thresholds || { smokeHigh: 0.30, smokeMedium: 0.15, tempHigh: 65 };
 
   renderLatestMetrics();
   renderScreenCharts();
@@ -1560,28 +1834,94 @@ async function handleManualConfirm(id, result) {
     showGlobalAlert("人工" + label + "失败: " + error.message);
   }
 }
+// WebSocket 连接管理 — 自动重连 + 按消息类型精准刷新
+var _wsReconnectDelay = 1000;
+var _wsMaxReconnectDelay = 30000;
+var _wsReconnectTimer = null;
+var _seenAlarmIds = {}; // 5秒内去重
+
 function connectWebSocket() {
   try {
     if (!location.host) { setChip("wsStatus", "WebSocket: 已断开", "warn"); return; }
     const token = getToken();
     const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/alarm" + (token ? "?token=" + encodeURIComponent(token) : "");
     const socket = new WebSocket(wsUrl);
-    socket.onopen = () => setChip("wsStatus", "WebSocket: 已连接", "ok");
-    socket.onclose = () => setChip("wsStatus", "WebSocket: 已断开", "warn");
-    socket.onmessage = (event) => {
+    socket.onopen = function () {
+      setChip("wsStatus", "WebSocket: 已连接", "ok");
+      _wsReconnectDelay = 1000; // 连上后重置退避
+    };
+    socket.onclose = function () {
+      setChip("wsStatus", "WebSocket: 已断开", "warn");
+      // 自动重连 — 指数退避
+      if (_wsReconnectTimer) clearTimeout(_wsReconnectTimer);
+      _wsReconnectTimer = setTimeout(function () {
+        _wsReconnectDelay = Math.min(_wsReconnectDelay * 2, _wsMaxReconnectDelay);
+        connectWebSocket();
+      }, _wsReconnectDelay);
+    };
+    socket.onmessage = function (event) {
       try {
-        const payload = JSON.parse(event.data);
-        if (payload.kind === "broadcast") { showBroadcastBanner(payload); }
-        else if (payload.kind === "device_online") { showDeviceOnlineBanner(payload); }
-        else { showRealtimeAlarmBanner(payload); }
-        loadScreenData();
-        loadAnalysisData();
-        loadAlarmRows(1);
-        loadReviewRows(1);
+        var payload = JSON.parse(event.data);
+        var kind = payload.kind || "";
+
+        // === 需要显示通知的消息 ===
+        if (kind === "broadcast" || kind === "broadcast_notify") {
+          showBroadcastBanner(payload);
+        } else if (kind === "device_online") {
+          showDeviceOnlineBanner(payload);
+        } else if (kind === "device_offline") {
+          showDeviceOfflineBanner(payload);
+        } else if (kind === "alarm_result" || kind === "alarm") {
+          // 5 秒内同一 alarmId 不重复弹窗
+          var aid = payload.alarmId;
+          var now = Date.now();
+          if (aid && _seenAlarmIds[aid] && (now - _seenAlarmIds[aid] < 5000)) {
+            // skip duplicate
+          } else {
+            if (aid) _seenAlarmIds[aid] = now;
+            showRealtimeAlarmBanner(payload);
+          }
+        }
+
+        // === 静默刷新 — 按类型精准刷新，不做全量 8 个 API ===
+        if (kind === "heartbeat") {
+          // 心跳仅更新同步时间，不做任何 API 调用
+          return;
+        } else if (kind === "data_changed" || kind === "device_config_changed") {
+          // 设备/配置变更 → 只刷新设备和 3D
+          loadDeviceStats();
+          loadDevices(state.devicesPage.page || 1);
+          if (window.refreshViz) window.refreshViz();
+          return;
+        } else if (kind === "alarm_update") {
+          // 告警状态变更 → 只刷新告警列表
+          loadAlarmRows(state.alarmsPage.page || 1);
+          if (window.refreshViz) window.refreshViz();
+          return;
+        } else if (kind === "alarm_result" || kind === "alarm") {
+          // 新告警 → 刷新告警列表 + 仪表盘数据
+          loadScreenData();
+          loadAlarmRows(1);
+          loadDeviceStats();
+          if (window.refreshViz) window.refreshViz();
+          return;
+        } else if (kind === "broadcast" || kind === "broadcast_notify") {
+          // 广播消息 → 刷新广播历史
+          if (typeof loadBroadcastHistory === "function") loadBroadcastHistory(1);
+          return;
+        } else if (kind === "device_online" || kind === "device_offline") {
+          // 设备上下线 → 刷新设备统计和列表
+          loadDeviceStats();
+          loadDevices(state.devicesPage.page || 1);
+          if (window.refreshViz) window.refreshViz();
+          return;
+        }
+        // 未知类型：仅刷新设备数据（不做告警/仪表盘刷新）
         loadDeviceStats();
         loadDevices(state.devicesPage.page || 1);
       } catch (error) {
-        showGlobalAlert("实时告警: " + event.data);
+        // 解析失败静默丢弃，不弹窗
+        console.error("WS parse error:", error.message);
       }
     };
   } catch (error) {

@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -101,6 +100,15 @@ public class AlarmWebSocket {
     }
 
     /**
+     * 向所有已连接的客户端广播消息（不分角色/地址）
+     */
+    public static void broadcastAll(String message) {
+        for (Session session : SESSION_USER.keySet()) {
+            trySend(session, message);
+        }
+    }
+
+    /**
      * 按设备归属推送告警：管理员全收，居民按地址匹配 + DeviceBinding 双通道接收。
      */
     public static void broadcastByDevice(Long deviceId, String msg) {
@@ -156,10 +164,83 @@ public class AlarmWebSocket {
 
     private static void trySend(Session s, String msg) {
         if (s == null || !s.isOpen()) return;
-        try {
-            s.getBasicRemote().sendText(msg);
-        } catch (IOException e) {
-            log.error("WS send error: {}", e.getMessage());
-        }
+        s.getAsyncRemote().sendText(msg, result -> {
+            if (!result.isOK()) {
+                log.error("WS async send error: {}",
+                        result.getException() != null ? result.getException().getMessage() : "unknown");
+            }
+        });
+    }
+
+    /**
+     * 广播 data_changed 事件 — 通知所有已连接客户端刷新设备列表/数据。
+     * 模拟器发送心跳、设备上线/离线、阈值变更后调用。
+     */
+    public static void broadcastDataChanged(String deviceCode) {
+        cn.hutool.json.JSONObject payload = new cn.hutool.json.JSONObject();
+        payload.set("kind", "data_changed");
+        payload.set("deviceId", deviceCode);
+        payload.set("ts", System.currentTimeMillis());
+        broadcastAll(payload.toString());
+    }
+
+    /**
+     * 广播告警结果 — 模拟器发送数据后触发告警或正常结果通知。
+     */
+    public static void broadcastAlarmResult(String deviceCode, String deviceName,
+                                             String alarmType, String alarmLevel,
+                                             double smoke, double temp, double thresholdValue,
+                                             String building, String floor, Long alarmId) {
+        cn.hutool.json.JSONObject payload = new cn.hutool.json.JSONObject();
+        payload.set("kind", "alarm_result");
+        payload.set("deviceId", deviceCode);
+        payload.set("deviceName", deviceName);
+        payload.set("alarmType", alarmType);
+        payload.set("alarmLevel", alarmLevel);
+        payload.set("smoke", smoke);
+        payload.set("temp", temp);
+        payload.set("thresholdValue", thresholdValue);
+        payload.set("building", building);
+        payload.set("floor", floor);
+        payload.set("alarmId", alarmId);
+        payload.set("ts", System.currentTimeMillis());
+        // 告警结果广播给所有连接（管理员需要看到，居民由地址匹配过滤）
+        broadcastAll(payload.toString());
+    }
+
+    /**
+     * 广播设备配置变更 — 阈值修改后调用。
+     */
+    public static void broadcastDeviceConfigChanged(String deviceCode, String changeType) {
+        cn.hutool.json.JSONObject payload = new cn.hutool.json.JSONObject();
+        payload.set("kind", "device_config_changed");
+        payload.set("deviceId", deviceCode);
+        payload.set("changeType", changeType);
+        payload.set("ts", System.currentTimeMillis());
+        broadcastAll(payload.toString());
+    }
+
+    /**
+     * 广播设备上线通知。
+     */
+    public static void broadcastDeviceOnline(String deviceCode, String deviceName) {
+        cn.hutool.json.JSONObject payload = new cn.hutool.json.JSONObject();
+        payload.set("kind", "device_online");
+        payload.set("deviceId", deviceCode);
+        payload.set("deviceName", deviceName);
+        payload.set("ts", System.currentTimeMillis());
+        broadcastAll(payload.toString());
+    }
+
+    /**
+     * 广播设备离线通知。
+     */
+    public static void broadcastDeviceOffline(String deviceCode, String deviceName) {
+        cn.hutool.json.JSONObject payload = new cn.hutool.json.JSONObject();
+        payload.set("kind", "device_offline");
+        payload.set("deviceId", deviceCode);
+        payload.set("deviceName", deviceName);
+        payload.set("ts", System.currentTimeMillis());
+        broadcastAll(payload.toString());
     }
 }
