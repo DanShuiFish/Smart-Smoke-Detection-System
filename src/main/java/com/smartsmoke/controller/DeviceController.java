@@ -164,8 +164,8 @@ public class DeviceController {
         }
         if (device.getStatus() == null) device.setStatus("OFFLINE");
         if (device.getBattery() == null) device.setBattery(100);
-        if (device.getHeartbeatTimeout() == null || device.getHeartbeatTimeout() < 10) {
-            device.setHeartbeatTimeout(30);
+        if (device.getHeartbeatTimeout() == null || device.getHeartbeatTimeout() < 5) {
+            device.setHeartbeatTimeout(15);
         }
         deviceService.save(device);
 
@@ -195,10 +195,10 @@ public class DeviceController {
         if (duplicate != null) {
             return Result.error(409, "设备编号已存在"  + device.getDeviceId());
         }
-        if (device.getHeartbeatTimeout() == null || device.getHeartbeatTimeout() < 10) {
-            device.setHeartbeatTimeout(exist.getHeartbeatTimeout() != null && exist.getHeartbeatTimeout() >= 10
+        if (device.getHeartbeatTimeout() == null || device.getHeartbeatTimeout() < 5) {
+            device.setHeartbeatTimeout(exist.getHeartbeatTimeout() != null && exist.getHeartbeatTimeout() >= 5
                     ? exist.getHeartbeatTimeout()
-                    : 30);
+                    : 15);
         }
         device.setId(id);
         deviceService.updateById(device);

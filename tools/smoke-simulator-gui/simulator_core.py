@@ -67,6 +67,9 @@ class SmokeSimulatorCore:
         self._reconnect_thread: threading.Thread | None = None
         self._last_config: SimulatorConfig | None = None
 
+        # 每设备独立数据参数 {device_code: {smoke, temp, humi}}
+        self._device_params: dict[str, dict] = {}
+
         # 连续发送定时器
         self._continuous_timer: threading.Thread | None = None
 
@@ -115,10 +118,11 @@ class SmokeSimulatorCore:
         was_connected = self.connected
         self.connected = False
         if reason_code != 0:
-            self._log(f"MQTT 异常断开 reason_code={reason_code}")
+            self._log(f"⚠ MQTT 连接断开 (原因码={reason_code})，仿真数据无法送达后端！")
         else:
             self._log("MQTT 正常断开")
         if was_connected and self.running:
+            self._log("🔄 正在自动重连 MQTT...")
             self._start_reconnect()
 
     def _on_message(self, client, userdata, msg) -> None:
@@ -237,7 +241,7 @@ class SmokeSimulatorCore:
             if not self._reconnect_running:
                 break
             if self.connect(self._last_config, timeout=6.0):
-                self._log("MQTT 重连成功!")
+                self._log("✅ MQTT 重连成功！仿真数据发送已恢复")
                 # 恢复运行中的设备心跳+数据
                 self._resume_running_devices()
                 break
@@ -347,6 +351,24 @@ class SmokeSimulatorCore:
             self._log_dev(device_code, "warn", f"告警: smoke={smoke:.4f} temp={temp:.1f}°C")
         return ok
 
+    def _send_data_with_params(self, device_code: str, smoke: float, temp: float,
+                                humi: float, config: SimulatorConfig) -> bool:
+        """使用指定参数发送数据（供 _data_loop 调用）"""
+        _, _, _, bat, _ = self._random_or_fixed(config)
+        ok = self.publish(
+            f"smoke/{device_code}/data",
+            self._build_data_payload(device_code, smoke, temp, humi, bat),
+        )
+        if ok:
+            self.state_manager.data_received(device_code, smoke, temp, humi, bat)
+            is_alarm = smoke >= 0.30
+            level = "warn" if is_alarm else "ok"
+            label = "⚠火警" if is_alarm else "正常"
+            msg = f"📤 [{label}] {device_code}: smoke={smoke:.4f} temp={temp:.1f}°C humi={humi:.1f}% bat={bat}%"
+            self._log_dev(device_code, level, msg)
+            self._log(msg)  # 同时输出到全局日志
+        return ok
+
     def send_heartbeat_once(self, device_code: str, config: SimulatorConfig) -> bool:
         _, _, _, bat, rssi = self._random_or_fixed(config)
         ok = self.publish(
@@ -416,16 +438,56 @@ class SmokeSimulatorCore:
         self._log(f"正常模式已启动: {len(device_codes)} 台设备")
         return True
 
+    def set_device_params(self, code: str, smoke: float, temp: float, humi: float) -> None:
+        """设置设备的独立数据参数（由 GUI 滑块控制）"""
+        self._device_params[code] = {"smoke": smoke, "temp": temp, "humi": humi}
+
     def _data_loop(self, device_code: str, config: SimulatorConfig) -> None:
+        """数据发送循环：80% 正常数据（滑块值）+ 20% 告警数据（随机超标值）"""
+        fail_count = 0
+        import random as _random
         while self.running and not self._stop_event.is_set():
-            self.send_normal_once(device_code, config)
+            # 80% 正常 + 20% 告警
+            if _random.random() < 0.20:
+                # 告警数据：烟雾 0.30~0.60，温度 65~85
+                smoke = round(_random.uniform(0.30, 0.60), 4)
+                temp = round(_random.uniform(65, 85), 2)
+                humi = round(_random.uniform(15, 30), 2)
+                self._log_dev(device_code, "warn",
+                    f"🔥 告警数据: smoke={smoke:.4f} temp={temp:.1f}°C humi={humi:.1f}%")
+            else:
+                # 正常数据：使用 GUI 滑块值
+                params = self._device_params.get(device_code, {})
+                smoke = params.get("smoke", config.smoke)
+                temp = params.get("temp", config.temp)
+                humi = params.get("humi", config.humi)
+            ok = self._send_data_with_params(device_code, smoke, temp, humi, config)
+            if not ok:
+                fail_count += 1
+                if fail_count == 1:
+                    self._log_dev(device_code, "warn", "数据发送失败，MQTT 可能已断开")
+                elif fail_count % 10 == 0:
+                    self._log_dev(device_code, "error", f"数据发送连续失败 {fail_count} 次")
+            else:
+                if fail_count > 0:
+                    self._log_dev(device_code, "ok", f"数据发送已恢复 (之前失败 {fail_count} 次)")
+                fail_count = 0
             if self._stop_event.wait(config.normal_interval):
                 break
 
     def _heartbeat_multi_loop(self, device_codes: list[str], config: SimulatorConfig) -> None:
+        fail_counts: dict[str, int] = {c: 0 for c in device_codes}
         while self.running and not self._stop_event.is_set():
             for code in device_codes:
-                self.send_heartbeat_once(code, config)
+                ok = self.send_heartbeat_once(code, config)
+                if not ok:
+                    fail_counts[code] += 1
+                    if fail_counts[code] == 1:
+                        self._log_dev(code, "warn", "心跳发送失败，MQTT 可能已断开")
+                else:
+                    if fail_counts[code] > 0:
+                        self._log_dev(code, "ok", f"心跳发送已恢复")
+                    fail_counts[code] = 0
             if self._stop_event.wait(config.heartbeat_interval):
                 break
 

@@ -133,29 +133,25 @@ public class DeviceStateManager {
     }
 
     /**
-     * 关闭停机期间产生的误报离线告警。
-     * 遍历所有设备，关闭其 PENDING 状态的 DEVICE_OFFLINE 告警。
+     * 启动时自动关闭所有旧告警（演示环境，确保每次启动都是干净状态）。
+     * 包括 DEVICE_OFFLINE 和超标告警（FIRE_RISK / SMOKE_CONCENTRATION / TEMPERATURE）。
      */
     private int closeStaleOfflineAlarms() {
         try {
-            List<SmokeDevice> allDevices = deviceMapper.selectList(null);
+            // 关闭所有未终态的告警（不限类型）
+            List<AlarmRecord> allActive = alarmRecordService.lambdaQuery()
+                    .in(AlarmRecord::getAlarmStatus, List.of("PENDING", "CONFIRMING", "CONFIRMED"))
+                    .list();
             int closed = 0;
-            for (SmokeDevice dev : allDevices) {
-                List<AlarmRecord> active = alarmRecordService.lambdaQuery()
-                        .eq(AlarmRecord::getDeviceId, dev.getId())
-                        .eq(AlarmRecord::getAlarmType, "DEVICE_OFFLINE")
-                        .in(AlarmRecord::getAlarmStatus, List.of("PENDING", "CONFIRMING", "CONFIRMED"))
-                        .list();
-                for (AlarmRecord a : active) {
-                    a.setAlarmStatus("CLOSED");
-                    a.setRemark("系统重启自动恢复，关闭离线告警");
-                    alarmRecordService.updateById(a);
-                    closed++;
-                }
+            for (AlarmRecord a : allActive) {
+                a.setAlarmStatus("CLOSED");
+                a.setRemark("系统重启自动关闭");
+                alarmRecordService.updateById(a);
+                closed++;
             }
             return closed;
         } catch (Exception e) {
-            log.warn("关闭过期离线告警失败: {}", e.getMessage());
+            log.warn("关闭旧告警失败: {}", e.getMessage());
             return 0;
         }
     }

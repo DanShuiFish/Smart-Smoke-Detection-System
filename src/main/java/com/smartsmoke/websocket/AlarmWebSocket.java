@@ -49,9 +49,12 @@ public class AlarmWebSocket {
         Long userId = null;
         String role = "RESIDENT";
         try {
-            // 从 URL 参数中获取 token
+            // 从 URL 参数中获取 token（兼容 satoken / token 两种参数名）
             Map<String, List<String>> params = session.getRequestParameterMap();
-            List<String> tokenList = params.get("token");
+            List<String> tokenList = params.get("satoken");
+            if (tokenList == null || tokenList.isEmpty()) {
+                tokenList = params.get("token");
+            }
             if (tokenList != null && !tokenList.isEmpty()) {
                 String token = tokenList.get(0);
                 Object loginId = StpUtil.getLoginIdByToken(token);
@@ -66,8 +69,9 @@ public class AlarmWebSocket {
         } catch (Exception e) {
             log.warn("WebSocket 解析 token 失败: {}", e.getMessage());
         }
-        SESSION_USER.put(session, userId);
-        SESSION_ROLE.put(session, role);
+        // ConcurrentHashMap 不允许 null value，未登录用 0L
+        SESSION_USER.put(session, userId != null ? userId : 0L);
+        SESSION_ROLE.put(session, role != null ? role : "RESIDENT");
         log.info("WS connected: session={}, userId={}, role={}", session.getId(), userId, role);
     }
 
@@ -85,7 +89,10 @@ public class AlarmWebSocket {
 
     @OnError
     public void onError(Session s, Throwable e) {
-        log.error("WS error: {}", e.getMessage());
+        // 打印完整堆栈以便诊断断开原因（e.getMessage() 在 TCP 异常时常为 null）
+        log.error("WS error on session {}: type={}, message={}", s.getId(),
+                e != null ? e.getClass().getSimpleName() : "null",
+                e != null ? e.getMessage() : "null", e);
         SESSION_USER.remove(s);
         SESSION_ROLE.remove(s);
     }
@@ -151,8 +158,13 @@ public class AlarmWebSocket {
                 trySend(s, msg);
                 continue;
             }
+            // 未登录用户（uid=0L）→ 演示/监控模式，接收所有消息
+            if (uid == null || uid == 0L) {
+                trySend(s, msg);
+                continue;
+            }
             // 居民 → 地址匹配 OR DeviceBinding
-            if (uid != null && targetUserIds.contains(uid)) {
+            if (targetUserIds.contains(uid)) {
                 trySend(s, msg);
             }
         }

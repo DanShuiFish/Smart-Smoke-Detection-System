@@ -20,7 +20,6 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -38,9 +37,6 @@ public class SimulationController {
     private final StringRedisTemplate stringRedisTemplate;
     private final MqttConsumer mqttConsumer;
     private final AlertThresholdMapper alertThresholdMapper;
-
-    // 心跳状态存储（仅内存，重启后根据设备 DB 状态重新判断）
-    private final Set<String> heartbeatActiveDevices = ConcurrentHashMap.newKeySet();
 
     // ===== 模拟设备离线 =====
     @PostMapping("/offline")
@@ -215,8 +211,8 @@ public class SimulationController {
         upd.setSignalStrength(rssi);
         deviceMapper.updateById(upd);
 
-        // 写入 Redis 心跳 Key（TTL 至少 90 秒，防止浏览器后台标签页节流导致误报离线）
-        int ttl = Math.max(dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 90, 90);
+        // 写入 Redis 心跳 Key（TTL 最小值 15s，演示用）
+        int ttl = dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 15;
         stringRedisTemplate.opsForValue().set(
                 "device:heartbeat:" + code,
                 String.valueOf(System.currentTimeMillis()),
@@ -242,7 +238,6 @@ public class SimulationController {
     public Result<Map<String, Object>> startHeartbeat(@RequestBody Map<String, Object> body) {
         String code = str(body, "deviceCode");
         if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
-        heartbeatActiveDevices.add(code);
         // 恢复上线
         SmokeDevice dev = resolveDevice(code);
         SmokeDevice upd = new SmokeDevice();
@@ -251,8 +246,8 @@ public class SimulationController {
         upd.setLastOnlineTime(LocalDateTime.now());
         deviceMapper.updateById(upd);
 
-        // 立即设置 Redis 心跳 Key（TTL 至少 90 秒，防御浏览器后台标签页节流）
-        int ttl = Math.max(dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 90, 90);
+        // 立即设置 Redis 心跳 Key（TTL 最小值 15s，演示用）
+        int ttl = dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 15;
         stringRedisTemplate.opsForValue().set(
                 "device:heartbeat:" + code,
                 String.valueOf(System.currentTimeMillis()),
@@ -264,45 +259,53 @@ public class SimulationController {
         // 推送 device_online 通知给所有客户端
         AlarmWebSocket.broadcastDeviceOnline(code, dev.getDeviceName());
         log.info("模拟器心跳启动: {}", code);
-        return Result.success(Map.of("deviceCode", code, "heartbeatActive", true));
+        return Result.success(Map.of("deviceCode", code, "status", "ONLINE", "offlineAfterSeconds", ttl));
     }
 
     @PostMapping("/heartbeat/stop")
     public Result<Map<String, Object>> stopHeartbeat(@RequestBody Map<String, Object> body) {
         String code = str(body, "deviceCode");
         if (code == null || code.isEmpty()) return Result.error(400, "deviceCode 必填");
-        heartbeatActiveDevices.remove(code);
-        // 更新设备状态为 OFFLINE
-        SmokeDevice dev = resolveDevice(code);
-        SmokeDevice upd = new SmokeDevice();
-        upd.setId(dev.getId());
-        upd.setStatus("OFFLINE");
-        upd.setLastOfflineTime(LocalDateTime.now());
-        deviceMapper.updateById(upd);
-        // 创建 DEVICE_OFFLINE 告警记录（持久化 + WebSocket 推送）
-        alarmRecordService.createOfflineAlarm(code);
 
-        // 删除 Redis 心跳 Key（避免 KeyspaceListener 重复触发）
-        stringRedisTemplate.delete("device:heartbeat:" + code);
+        SmokeDevice dev = resolveDevice(code);
+        // 不立即标离线：保留 Redis 心跳 Key，让其自然过期后由 RedisKeyspaceListener 触发离线判定
+        // 设备在 Redis Key 过期前仍保持 ONLINE 状态
+        int ttl = dev.getHeartbeatTimeout() != null ? dev.getHeartbeatTimeout() : 15;
+        log.info("模拟器心跳停止: {}, 设备将在 Redis Key 过期后（约 {}s）自动判定离线", code, ttl);
+
         notifyDataChanged(code, "heartbeat_stop");
-        // 推送 device_offline 通知给所有客户端
-        AlarmWebSocket.broadcastDeviceOffline(code, dev.getDeviceName());
-        log.info("模拟器心跳停止: {}", code);
-        return Result.success(Map.of("deviceCode", code, "heartbeatActive", false));
+        return Result.success(Map.of("deviceCode", code, "status", "ONLINE",
+                "offlineAfterSeconds", ttl, "message", "设备将在 " + ttl + "s 后自动判定离线"));
+    }
+
+    @GetMapping("/heartbeat/ttl")
+    public Result<Map<String, Object>> heartbeatTtl(@RequestParam String deviceCode) {
+        String key = "device:heartbeat:" + deviceCode;
+        Long ttl = stringRedisTemplate.getExpire(key, TimeUnit.SECONDS);
+        if (ttl == null || ttl <= 0) {
+            return Result.success(Map.of("deviceCode", deviceCode, "ttl", 0,
+                    "message", "心跳Key已过期或不存在，设备已离线或未启动仿真"));
+        }
+        return Result.success(Map.of("deviceCode", deviceCode, "ttl", ttl,
+                "message", "剩余 " + ttl + "s"));
     }
 
     @GetMapping("/heartbeat/status")
     public Result<Map<String, Object>> heartbeatStatus(@RequestParam(defaultValue = "") String deviceCode) {
         if (deviceCode.isEmpty()) {
-            // 返回所有设备心跳状态
-            Map<String, Boolean> all = new LinkedHashMap<>();
+            // 返回所有设备状态（直接从 DB 读取，这是唯一权威源）
+            Map<String, String> deviceStatus = new LinkedHashMap<>();
             List<SmokeDevice> devices = deviceMapper.selectList(null);
             for (SmokeDevice d : devices) {
-                all.put(d.getDeviceId(), heartbeatActiveDevices.contains(d.getDeviceId()));
+                deviceStatus.put(d.getDeviceId(), d.getStatus() != null ? d.getStatus() : "OFFLINE");
             }
-            return Result.success(Map.of("activeDevices", heartbeatActiveDevices, "deviceStatus", all));
+            return Result.success(Map.of("deviceStatus", deviceStatus));
         }
-        return Result.success(Map.of("deviceCode", deviceCode, "active", heartbeatActiveDevices.contains(deviceCode)));
+        SmokeDevice dev = deviceMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SmokeDevice>()
+                        .eq(SmokeDevice::getDeviceId, deviceCode));
+        String status = (dev != null && dev.getStatus() != null) ? dev.getStatus() : "OFFLINE";
+        return Result.success(Map.of("deviceCode", deviceCode, "status", status));
     }
 
     // ===== 阈值配置（供前端和模拟器使用） =====
@@ -420,7 +423,8 @@ public class SimulationController {
             entry.put("signalStrength", d.getSignalStrength() != null ? d.getSignalStrength() : 0);
             entry.put("heartbeatTimeout", d.getHeartbeatTimeout() != null ? d.getHeartbeatTimeout() : 30);
             entry.put("lastHeartbeat", d.getLastHeartbeat() != null ? d.getLastHeartbeat().toString() : null);
-            entry.put("heartbeatActive", heartbeatActiveDevices.contains(d.getDeviceId()));
+            // 从 DB 读取真实状态（唯一权威源）
+            entry.put("heartbeatActive", "ONLINE".equals(d.getStatus()));
             r.add(entry);
         }
         return Result.success(r);

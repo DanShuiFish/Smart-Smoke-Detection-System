@@ -56,6 +56,7 @@ public class AlarmRuleEngine {
     /**
      * 处理一条传感器数据：先存库，再检查阈值，最多产生一条告警。
      * 烟雾+温度同时超标 → FIRE_RISK（复合火情），单项超标 → 对应类型。
+     * 同一设备 + 同一告警类型已有活跃告警时，不重复创建（去重）。
      */
     public void processData(SensorData data) {
         sensorDataService.save(data);
@@ -64,20 +65,51 @@ public class AlarmRuleEngine {
         AlertThreshold smokeMatch = checkThreshold(data, "SMOKE_CONCENTRATION");
         AlertThreshold tempMatch  = checkThreshold(data, "TEMPERATURE");
 
+        log.info("数据处理: deviceId={} smoke={} temp={} | 烟雾阈值匹配={} 温度阈值匹配={}",
+                data.getDeviceId(),
+                data.getSmokeConcentration(),
+                data.getTemperature(),
+                smokeMatch != null ? smokeMatch.getAlarmLevel() + "/" + smokeMatch.getThresholdMax() : "未超标",
+                tempMatch != null ? tempMatch.getAlarmLevel() + "/" + tempMatch.getThresholdMax() : "未超标");
+
         if (smokeMatch != null && tempMatch != null) {
-            // 两样都超标 → 合并为一条 FIRE_RISK
             String level = higherLevel(smokeMatch.getAlarmLevel(), tempMatch.getAlarmLevel());
-            AlarmRecord record = createAlarm(data, "FIRE_RISK", level, smokeMatch.getThresholdMax());
-            finishAlarm(record, data);
+            if (!hasActiveAlarm(data.getDeviceId(), "FIRE_RISK")) {
+                AlarmRecord record = createAlarm(data, "FIRE_RISK", level, smokeMatch.getThresholdMax());
+                finishAlarm(record, data);
+            } else {
+                log.info("告警去重: deviceId={} FIRE_RISK 已有活跃告警，跳过创建", data.getDeviceId());
+            }
         } else if (smokeMatch != null) {
-            AlarmRecord record = createAlarm(data, "SMOKE_CONCENTRATION",
-                    smokeMatch.getAlarmLevel(), smokeMatch.getThresholdMax());
-            finishAlarm(record, data);
+            if (!hasActiveAlarm(data.getDeviceId(), "SMOKE_CONCENTRATION")) {
+                AlarmRecord record = createAlarm(data, "SMOKE_CONCENTRATION",
+                        smokeMatch.getAlarmLevel(), smokeMatch.getThresholdMax());
+                finishAlarm(record, data);
+            } else {
+                log.info("告警去重: deviceId={} SMOKE_CONCENTRATION 已有活跃告警，跳过创建", data.getDeviceId());
+            }
         } else if (tempMatch != null) {
-            AlarmRecord record = createAlarm(data, "TEMPERATURE",
-                    tempMatch.getAlarmLevel(), tempMatch.getThresholdMax());
-            finishAlarm(record, data);
+            if (!hasActiveAlarm(data.getDeviceId(), "TEMPERATURE")) {
+                AlarmRecord record = createAlarm(data, "TEMPERATURE",
+                        tempMatch.getAlarmLevel(), tempMatch.getThresholdMax());
+                finishAlarm(record, data);
+            } else {
+                log.info("告警去重: deviceId={} TEMPERATURE 已有活跃告警，跳过创建", data.getDeviceId());
+            }
         }
+    }
+
+    /**
+     * 检查同一设备 + 同一告警类型是否已有活跃告警（PENDING/CONFIRMING/CONFIRMED）。
+     * 有则跳过创建，防止每条超标数据都产生新告警。
+     */
+    private boolean hasActiveAlarm(Long deviceId, String alarmType) {
+        Long count = alarmRecordService.lambdaQuery()
+                .eq(AlarmRecord::getDeviceId, deviceId)
+                .eq(AlarmRecord::getAlarmType, alarmType)
+                .in(AlarmRecord::getAlarmStatus, java.util.List.of("PENDING", "CONFIRMING", "CONFIRMED"))
+                .count();
+        return count != null && count > 0;
     }
 
     /**
