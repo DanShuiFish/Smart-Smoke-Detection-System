@@ -1,10 +1,16 @@
 {
   "mqtt": {
-    "broker": "192.168.130.101",
+    "broker": "10.100.42.60",
     "port": 1883,
     "client_id": "smoke-simulator-gui",
     "username": "fasong",
     "password": "fasong123"
+  },
+  "backend": {
+    "url": "http://localhost:8080",
+    "username": "admin",
+    "password": "admin123",
+    "ws_path": "/ws/alarm"
   },
   "defaults": {
     "use_random": true,

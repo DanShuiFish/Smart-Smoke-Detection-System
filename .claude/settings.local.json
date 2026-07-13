@@ -80,7 +80,27 @@
       "Bash(bash \"C:/Users/Lenovo/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" cd53ed5 6482155)",
       "Bash(bash \"C:/Users/Lenovo/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" 6482155 0df75a1)",
       "Bash(bash \"C:/Users/Lenovo/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" 0e1ccdf 0df75a1)",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "PowerShell(mvn compile *)",
+      "Bash(E:/annicoda/python.exe -m pytest tests/test_simulator_gui.py -v)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(cd \"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\"; $env:PYTHONPATH = \".\"; & \"E:\\\\Python3\\\\python.exe\" -m unittest tests.test_simulator_gui -v 2>&1)",
+      "PowerShell(& \"E:\\\\Python3\\\\python.exe\" -m pip show pyinstaller 2>&1)",
+      "PowerShell(& \"E:\\\\Python3\\\\python.exe\" -m pip install pyinstaller -q 2>&1)",
+      "PowerShell(& \"E:\\\\Python3\\\\python.exe\" -m pip install paho-mqtt requests websocket-client -q 2>&1)",
+      "PowerShell(Get-Item \"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\SmokeSimulatorGUI.exe\" | Select-Object Name, @{N='Size\\(MB\\)';E={[math]::Round\\($_.Length/1MB, 2\\)}}, LastWriteTime)",
+      "Bash(curl -s -o /dev/null -w \"EMQX: %{http_code}\" http://10.100.42.60:18083)",
+      "Bash(curl -s -o /dev/null -w \"Backend: %{http_code}\" http://localhost:8080/api/v1/health)",
+      "Bash(timeout 3 bash -c 'echo >/dev/tcp/10.100.42.60/1883')",
+      "PowerShell($env:PYTHONIOENCODING='utf-8'; cd \"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\"; & \"E:\\\\Python3\\\\python.exe\" -X utf8 test_smoke.py 2>&1)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(Rename-Item *)",
+      "PowerShell(Get-ChildItem \"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\\" | Select-Object Name, @{N='Size\\(MB\\)';E={[math]::Round\\($_.Length/1MB, 2\\)}}, LastWriteTime)",
+      "PowerShell(cmd /c \"timeout /t 2 /nobreak >nul & del /f /q \\\\\"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\SmokeSimulatorGUI.exe\\\\\" & move /y \\\\\"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\SmokeSimulatorGUIv2.exe\\\\\" \\\\\"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\SmokeSimulatorGUI.exe\\\\\"\"; Get-Item \"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\SmokeSimulatorGUI.exe\" | Select-Object Name, @{N='Size\\(MB\\)';E={[math]::Round\\($_.Length/1MB, 2\\)}}, LastWriteTime)",
+      "PowerShell(Get-ChildItem \"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\\" | Select-Object Name, @{N='MB';E={[math]::Round\\($_.Length/1MB, 2\\)}}, LastWriteTime)",
+      "PowerShell($body = '{\"username\":\"admin\",\"password\":\"admin123\"}'; $r = Invoke-RestMethod -Uri \"http://localhost:8080/api/v1/auth/login\" -Method Post -Body $body -ContentType \"application/json\"; $token = $r.data.token; $devices = Invoke-RestMethod -Uri \"http://localhost:8080/api/v1/simulation/status\" -Headers @{Authorization=\"Bearer $token\"}; Write-Output \"剩余设备:\"; $devices.data | ForEach-Object { Write-Output \"  $\\($_.deviceCode\\) - $\\($_.name\\) - $\\($_.status\\)\" })",
+      "PowerShell(Get-ChildItem \"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\SmokeSimulatorGUIv3.exe\" | Select-Object Name, @{N='MB';E={[math]::Round\\($_.Length/1MB, 2\\)}})",
+      "PowerShell(Get-ChildItem \"E:\\\\java Pro\\\\Pro_smoke\\\\tools\\\\smoke-simulator-gui\\\\dist\\\\SmokeSimulatorGUI.exe\" | Select-Object Name, @{N='MB';E={[math]::Round\\($_.Length/1MB, 2\\)}}, LastWriteTime)"
     ]
   }
 }
