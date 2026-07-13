@@ -1,26 +1,29 @@
 [
   {
     "device_id": 1,
-    "device_code": "SDS-001",
-    "device_name": "1号楼101烟感",
-    "building": "1号楼",
-    "floor": "1F",
-    "room": "101室"
+    "device_code": "SMOKE-001",
+    "device_name": "1栋3层301-A",
+    "building": "1栋",
+    "floor": "3层",
+    "room": "301",
+    "heartbeat_timeout": 10
   },
   {
     "device_id": 2,
-    "device_code": "SDS-002",
-    "device_name": "1号楼301烟感",
-    "building": "1号楼",
-    "floor": "3F",
-    "room": "301室"
+    "device_code": "SMOKE-002",
+    "device_name": "2栋3层301-A",
+    "building": "2栋",
+    "floor": "3层",
+    "room": "301",
+    "heartbeat_timeout": 30
   },
   {
     "device_id": 3,
-    "device_code": "SDS-003",
-    "device_name": "2号楼食堂烟感",
-    "building": "2号楼",
-    "floor": "1F",
-    "room": "食堂"
+    "device_code": "SMOKE-003",
+    "device_name": "2栋5层501-A",
+    "building": "2栋",
+    "floor": "5层",
+    "room": "501",
+    "heartbeat_timeout": 10
   }
 ]

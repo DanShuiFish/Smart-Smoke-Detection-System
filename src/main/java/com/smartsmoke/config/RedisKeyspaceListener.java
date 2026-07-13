@@ -27,7 +27,7 @@ public class RedisKeyspaceListener implements MessageListener {
     @Override
     public void onMessage(Message message, byte[] pattern) {
         String expiredKey = new String(message.getBody());
-        log.debug("Redis key expired: {}", expiredKey);
+        log.info("Redis key expired: {}", expiredKey);
 
         // 只处理心跳 Key
         if (!expiredKey.startsWith(HEARTBEAT_PREFIX)) {
@@ -35,7 +35,7 @@ public class RedisKeyspaceListener implements MessageListener {
         }
 
         String deviceCode = expiredKey.substring(HEARTBEAT_PREFIX.length());
-        log.warn("设备心跳超时，触发离线告警: {}", deviceCode);
+        log.warn("⚠ 设备心跳超时，触发离线告警: {}", deviceCode);
 
         try {
             // 1. 更新设备状态为 OFFLINE

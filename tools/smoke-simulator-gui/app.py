@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 from pathlib import Path
@@ -83,6 +84,7 @@ class DeviceEditorDialog(tk.Toplevel):
             "building": tk.StringVar(value=device.get("building", "") if device else ""),
             "floor": tk.StringVar(value=device.get("floor", "") if device else ""),
             "room": tk.StringVar(value=device.get("room", "") if device else ""),
+            "heartbeat_timeout": tk.StringVar(value=str(device.get("heartbeat_timeout", 15)) if device else "15"),
         }
 
         container = ttk.Frame(self, padding=12)
@@ -94,10 +96,12 @@ class DeviceEditorDialog(tk.Toplevel):
             ("building", "楼栋"),
             ("floor", "楼层"),
             ("room", "房间"),
+            ("heartbeat_timeout", "离线超时(s)"),
         ]
         for row, (key, text) in enumerate(labels):
             ttk.Label(container, text=text).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=6)
-            ttk.Entry(container, textvariable=self.vars[key], width=28).grid(row=row, column=1, sticky="ew", pady=6)
+            width = 8 if key == "heartbeat_timeout" else 28
+            ttk.Entry(container, textvariable=self.vars[key], width=width).grid(row=row, column=1, sticky="ew", pady=6)
 
         btn_frame = ttk.Frame(container)
         btn_frame.grid(row=len(labels), column=0, columnspan=2, sticky="e", pady=(12, 0))
@@ -191,6 +195,9 @@ class SmokeSimulatorApp:
 
         # ── 每设备独立配置 ── {device_code: {smoke_high, smoke_med, temp_high, hb_interval, data_interval, smoke_slider, temp_slider, humi_slider}}
         self._device_configs: dict[str, dict] = {}
+
+        # 离线倒计时截止时间戳：停止仿真后 Redis Key 过期的时间点
+        self._offline_deadlines: dict[str, float] = {}
 
         # 全局日志不自动滚底（跟踪用户是否手动滚上去了）
         self._global_log_user_scrolled = False
@@ -720,12 +727,18 @@ class SmokeSimulatorApp:
 
         hb_running = state.heartbeat_running if state else False
         data_running = state.data_running if state else False
+        countdown = 0
+        deadline = self._offline_deadlines.get(code, 0)
+        if deadline > 0:
+            countdown = max(0, int(deadline - time.time()))
         if hb_running and data_running:
             int_hb = self.hb_interval_var.get() or "10"
             int_dt = self.data_interval_var.get() or "5"
             self.hb_status_var.set(f"● 仿真运行中 (心跳{int_hb}s + 数据{int_dt}s)")
         elif hb_running:
             self.hb_status_var.set("● 心跳运行中")
+        elif countdown > 0:
+            self.hb_status_var.set(f"⏳ 等待离线判定... (约{countdown}s)")
         else:
             self.hb_status_var.set("○ 仿真已停止")
         if hb_running:
@@ -774,9 +787,20 @@ class SmokeSimulatorApp:
         val = self.smoke_slider_var.get() / 100
         label = " 正常" if val < 0.15 else " 轻度" if val < 0.30 else " 火警"
         self.smoke_label_var.set(f"{val:.2f} {label}")
+        # 仿真运行中时实时更新参数
+        self._update_running_device_params()
 
     def _on_temp_slider(self, *args) -> None:
         self.temp_label_var.set(f"{self.temp_slider_var.get()}°C")
+        self._update_running_device_params()
+
+    def _update_running_device_params(self) -> None:
+        """仿真运行中，将滑块值实时同步到模拟器"""
+        p = self._get_data_params()
+        states = self.core.state_manager.get_all()
+        for code, state in states.items():
+            if state.data_running or state.heartbeat_running:
+                self.core.set_device_params(code, p["smoke"], p["temp"], p["humi"])
 
     def _get_data_params(self) -> dict:
         return {
@@ -894,17 +918,21 @@ class SmokeSimulatorApp:
             pass
         return False
 
-    def _sync_heartbeat_stop_rest(self, code: str) -> bool:
-        """通过 REST API 即时通知后端设备离线"""
+    def _sync_heartbeat_stop_rest(self, code: str) -> int:
+        """通过 REST API 通知后端停止心跳，返回离线倒计时秒数（失败返回 -1）"""
         try:
             if self.core.rest_client is None or not self.core.rest_client.online:
                 self._init_rest_client()
             rc = self.core.rest_client
             if rc and rc.online:
-                return rc.heartbeat_stop(code)
+                data = rc.heartbeat_stop(code)
+                if data and isinstance(data, dict):
+                    ttl = data.get("offlineAfterSeconds", 15)
+                    self._offline_deadlines[code] = time.time() + ttl
+                    return ttl
         except Exception:
             pass
-        return False
+        return -1
 
     def _sync_heartbeat_send_rest(self, code: str, bat: int, rssi: int) -> bool:
         """通过 REST API 发送心跳（额外通道，增强可靠性）"""
@@ -932,6 +960,14 @@ class SmokeSimulatorApp:
         config = self._build_config()
         config.heartbeat_interval = int(self.hb_interval_var.get() or 10)
         config.normal_interval = int(self.data_interval_var.get() or 5)
+
+        # 0. 将 GUI 滑块值传给模拟器（仿真循环发送实际滑块值，而非全局默认值）
+        p = self._get_data_params()
+        for c in codes:
+            self.core.set_device_params(c, p["smoke"], p["temp"], p["humi"])
+        self._log_global("info",
+            f"数据参数: smoke={p['smoke']:.2f} temp={p['temp']}°C humi={p['humi']}%"
+            + (" ⚠告警级别" if p['smoke'] >= 0.30 else " 正常范围"))
 
         # 1. 通过 REST 即时通知每台设备上线
         rest_ok_count = 0
@@ -970,10 +1006,12 @@ class SmokeSimulatorApp:
         # 1. 停止所有 MQTT 循环
         self.core.stop_running()
 
-        # 2. 通过 REST 通知每台设备离线
+        # 2. 通过 REST 通知每台设备停止心跳，获取离线倒计时
         for c in running_codes:
-            self._sync_heartbeat_stop_rest(c)
-        self._log_global("warn", f"仿真已停止: {len(running_codes)} 台设备")
+            ttl = self._sync_heartbeat_stop_rest(c)
+            if ttl > 0:
+                self._log_device(c, "warn", f"仿真已停止，设备将在约 {ttl}s 后自动判定离线")
+        self._log_global("warn", f"⏹ 仿真已停止: {len(running_codes)} 台设备")
 
         self.root.after(0, lambda: self.mqtt_status_var.set(
             "已连接" if self.core.connected else "未连接"))
@@ -1050,7 +1088,8 @@ class SmokeSimulatorApp:
                 "locationBuilding": new_dev.get("building", ""),
                 "locationFloor": new_dev.get("floor", ""),
                 "locationRoom": new_dev.get("room", ""),
-                "status": "ONLINE", "battery": 100, "signalStrength": 90, "heartbeatTimeout": 30,
+                "status": "ONLINE", "battery": 100, "signalStrength": 90,
+                "heartbeatTimeout": int(new_dev.get("heartbeat_timeout", 15)),
             })
         if backend_synced:
             self._log_global("ok", f"已同步到数据库 → 前端实时可见")
@@ -1219,36 +1258,71 @@ class SmokeSimulatorApp:
     def _on_ws_event(self, event_type: str, payload: dict) -> None:
         if event_type == "ws_connected":
             self.ws_status_var.set("WebSocket: ✅ 已连接")
-            self._log_global("ok", "WebSocket 已连接")
+            self._log_global("ok", "📡 WebSocket 已连接")
         elif event_type == "ws_disconnected":
             self.ws_status_var.set("WebSocket: 🔴 断开")
-            self._log_global("warn", "WebSocket 已断开")
+            self._log_global("warn", "📡 WebSocket 已断开，将在3s后自动重连")
         elif event_type == "alarm":
-            msg = f"告警: {payload.get('deviceName', '?')} {payload.get('alarmType', '')} [{payload.get('alarmLevel', '')}]"
-            self._log_global("warn", msg)
+            # 完整告警信息
+            device_name = payload.get('deviceName', '?')
+            alarm_type = payload.get('alarmTypeText', payload.get('alarmType', ''))
+            alarm_level = payload.get('alarmLevelText', payload.get('alarmLevel', ''))
+            smoke = payload.get('smokeConcentration', '')
+            threshold = payload.get('thresholdValue', '')
+            detail = f"类型={alarm_type} 等级={alarm_level}"
+            if smoke:
+                detail += f" 当前值={smoke}"
+            if threshold:
+                detail += f" 阈值={threshold}"
+            self._log_global("error", f"🔥 [告警] {device_name} — {detail}")
+            # 同时记录到设备日志
+            code = payload.get('deviceId', '')
+            if code:
+                self._log_device(code, "error", f"告警触发: {detail}")
         elif event_type == "device_online":
             code = payload.get("deviceId", "")
-            self._log_global("ok", f"{payload.get('deviceName', code)} 恢复在线")
+            name = payload.get("deviceName", code)
+            self._log_global("ok", f"✅ [上线] {name} 恢复在线")
+            if code:
+                self._log_device(code, "ok", "设备恢复在线")
             self.core.state_manager.update_local_status(code, True)
             self._safe_refresh_tree()
         elif event_type == "device_offline":
             code = payload.get("deviceId", "")
-            self._log_global("error", f"{payload.get('deviceName', code)} 离线告警")
+            name = payload.get("deviceName", code)
+            self._log_global("error", f"❌ [离线] {name} 设备离线告警！")
+            if code:
+                self._log_device(code, "error", "设备离线告警！心跳超时")
             self.core.state_manager.update_local_status(code, False)
             self._safe_refresh_tree()
         elif event_type == "broadcast":
-            self._log_global("warn", f"广播: {payload.get('message', '')}")
+            self._log_global("warn", f"📢 [广播] {payload.get('message', '')}")
         elif event_type == "data_changed":
-            self._log_global("info", f"数据变更: {payload.get('deviceId', '')} {payload.get('action', '')}")
-        elif event_type == "config_changed":
-            # 其他端修改了阈值，自动刷新当前设备
-            code = self._active_device_code
-            if code:
-                self._run_in_thread(lambda: self._fetch_thresholds_for_device(code), "")
+            code = payload.get('deviceId', '')
+            action = payload.get('action', '')
+            action_map = {
+                "heartbeat_start": "仿真启动",
+                "heartbeat_stop": "仿真停止",
+                "heartbeat": "心跳更新",
+                "sensor_data": "数据上报",
+                "device_online": "设备上线",
+                "device_offline": "设备离线",
+                "threshold_update": "阈值变更",
+            }
+            action_text = action_map.get(action, action)
+            self._log_global("info", f"📊 [数据] {code} — {action_text}")
         else:
-            # 尝试解析 kind 字段
+            # 处理来自 AlarmWebSocket 推送的 alarm 格式（kind=alarm）
             kind = payload.get("kind", "")
-            if kind == "device_config_changed" or "threshold" in str(payload.get("action", "")):
+            if kind == "alarm":
+                device_name = payload.get('deviceName', '?')
+                alarm_type = payload.get('alarmTypeText', payload.get('alarmType', ''))
+                alarm_level = payload.get('alarmLevelText', payload.get('alarmLevel', ''))
+                self._log_global("error", f"🔥 [告警] {device_name} — {alarm_type} [{alarm_level}]")
+                code = payload.get('deviceId', '')
+                if code:
+                    self._log_device(code, "error", f"告警: {alarm_type} [{alarm_level}]")
+            elif kind == "device_config_changed" or "threshold" in str(payload.get("action", "")):
                 code = self._active_device_code
                 if code:
                     self._run_in_thread(lambda: self._fetch_thresholds_for_device(code), "")
@@ -1287,6 +1361,7 @@ class SmokeSimulatorApp:
                 "building": bd.get("building") or bd.get("locationBuilding", ""),
                 "floor": bd.get("floor") or bd.get("locationFloor", ""),
                 "room": bd.get("room") or bd.get("locationRoom", ""),
+                "heartbeat_timeout": bd.get("heartbeatTimeout", 15),
             }
 
         local_codes = {d["device_code"] for d in self.devices}
@@ -1449,12 +1524,18 @@ class SmokeSimulatorApp:
     _auto_refresh_counter = 0
 
     def periodic_refresh(self) -> None:
-        """周期刷新：UI + 每10秒自动从后端拉状态"""
+        """周期刷新：UI + 每10秒自动从后端拉状态 + 离线倒计时递减"""
         if self._active_device_code:
             self._show_device_detail(self._active_device_code)
         self._safe_refresh_tree()
         self._flush_global_log()
         self._flush_device_log()
+
+        # 离线倒计时（基于真实时间戳，到期的自动清除）
+        now = time.time()
+        for code in list(self._offline_deadlines.keys()):
+            if now >= self._offline_deadlines[code]:
+                del self._offline_deadlines[code]
 
         # 每 10 秒自动刷新后端状态（6 次 × 1.5s = 9s ≈ 10s）
         self._auto_refresh_counter += 1

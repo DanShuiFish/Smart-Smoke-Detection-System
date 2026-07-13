@@ -98,11 +98,13 @@ public class MqttConsumer {
                 new QueryWrapper<SmokeDevice>().eq("device_id", heartbeat.getDeviceId())
         );
 
+        boolean wasOffline = device != null && "OFFLINE".equals(device.getStatus());
+
         if (device == null) {
             log.info("发现新设备，自动注册: {}", heartbeat.getDeviceId());
             device = new SmokeDevice();
             device.setDeviceId(heartbeat.getDeviceId());
-            device.setDeviceName(heartbeat.getDeviceId()); // 默认名称 = 设备编号
+            device.setDeviceName(heartbeat.getDeviceId());
             device.setStatus("ONLINE");
             device.setBattery(heartbeat.getBat());
             device.setSignalStrength(heartbeat.getRssi());
@@ -111,6 +113,7 @@ public class MqttConsumer {
             device.setHeartbeatTimeout(30);
             device.setSortOrder(999);
             deviceMapper.insert(device);
+            wasOffline = true; // 新设备视为从离线恢复
         }
 
         SmokeDevice updateDevice = new SmokeDevice();
@@ -126,18 +129,20 @@ public class MqttConsumer {
         }
         deviceMapper.updateById(updateDevice);
 
-        // Redis 心跳续期：Key 过期后由 RedisKeyspaceListener 触发离线告警
-        // TTL 最小值 90s，防止浏览器后台标签页节流 setInterval(10s→~60s) 导致误报离线
-        int ttl = Math.max(device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 90, 90);
+        // Redis 心跳续期
+        int ttl = device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 15;
         stringRedisTemplate.opsForValue()
                 .set("device:heartbeat:" + heartbeat.getDeviceId(), "1", Duration.ofSeconds(ttl));
 
-        // 设备恢复上线：自动关闭该设备已有的 DEVICE_OFFLINE 类型活跃告警
+        // 设备恢复上线：关闭旧的离线告警
         closeOfflineAlarms(device.getId());
 
-        // 发送 WebSocket 通知设备上线
+        // 只在设备从 OFFLINE → ONLINE 时才推送上线通知
         AlarmWebSocket.broadcastDataChanged(heartbeat.getDeviceId());
-        AlarmWebSocket.broadcastDeviceOnline(heartbeat.getDeviceId(), device.getDeviceName());
+        if (wasOffline) {
+            AlarmWebSocket.broadcastDeviceOnline(heartbeat.getDeviceId(), device.getDeviceName());
+            log.info("设备恢复上线: {} ({})", heartbeat.getDeviceId(), device.getDeviceName());
+        }
 
         log.debug("心跳更新: {} battery={}% rssi={}dBm", heartbeat.getDeviceId(), heartbeat.getBat(), heartbeat.getRssi());
     }
@@ -176,8 +181,8 @@ public class MqttConsumer {
         deviceMapper.updateById(updateDevice);
 
         // 数据上报设备也写 Redis 心跳 Key，确保离线检测覆盖纯数据上报设备
-        // TTL 最小值 90s，防止浏览器后台标签页节流 setInterval(10s→~60s) 导致误报离线
-        int dataTtl = Math.max(device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 90, 90);
+        // TTL 最小值 15s（演示用；生产环境建议 ≥90s 防浏览器后台标签页节流）
+        int dataTtl = device.getHeartbeatTimeout() != null ? device.getHeartbeatTimeout() : 15;
         stringRedisTemplate.opsForValue()
                 .set("device:heartbeat:" + report.getDeviceId(), "1", Duration.ofSeconds(dataTtl));
 

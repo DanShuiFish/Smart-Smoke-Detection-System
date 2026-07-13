@@ -104,6 +104,20 @@ class RestClient:
             self._log(f"POST {path} 异常: {e}")
             return False
 
+    def _post_with_body(self, path: str, body: dict) -> dict | None:
+        """POST 请求，返回响应 data 字段（dict）或 None"""
+        if not self.online:
+            return None
+        try:
+            resp = requests.post(f"{self.base_url}{path}", json=body, headers=self._headers(), timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("code") == 200:
+                    return data.get("data")
+            return None
+        except Exception:
+            return None
+
     def _put(self, path: str, body: dict) -> bool:
         if not self.online:
             return False
@@ -202,9 +216,16 @@ class RestClient:
         """通知后端模拟器心跳启动"""
         return self._post("/api/v1/simulation/heartbeat/start", {"deviceCode": device_code})
 
-    def heartbeat_stop(self, device_code: str) -> bool:
-        """通知后端模拟器心跳停止"""
-        return self._post("/api/v1/simulation/heartbeat/stop", {"deviceCode": device_code})
+    def heartbeat_stop(self, device_code: str) -> dict | None:
+        """通知后端模拟器心跳停止，返回 {offlineAfterSeconds, ...} 或 None"""
+        return self._post_with_body("/api/v1/simulation/heartbeat/stop", {"deviceCode": device_code})
+
+    def heartbeat_ttl(self, device_code: str) -> int | None:
+        """查询设备 Redis 心跳 Key 剩余 TTL（秒），Key 不存在返回 0"""
+        data = self._get(f"/api/v1/simulation/heartbeat/ttl?deviceCode={device_code}")
+        if isinstance(data, dict):
+            return data.get("ttl")
+        return None
 
     def heartbeat_send(self, device_code: str, bat: int, rssi: int) -> bool:
         """调后端心跳接口"""
